@@ -75,7 +75,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  const make=add(ai,'button',tr('AI රූපය සාදන්න','Generate AI image')),halt=add(ai,'button',tr('නවත්වන්න','Cancel'));make.type=halt.type='button';halt.disabled=true;
  const aiStatus=add(ai,'small','');let job=null,ctrl=null;const base='https://aihorde.net/api/v2';
  const headers={'Content-Type':'application/json','apikey':'0000000000','Client-Agent':'SuttaGo:1.0:research-lab'};
- async function call(path,opts={}){let r=await fetch(base+path,{...opts,headers,signal:opts.signal||AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
+ async function call(path,opts={}){let r=await fetch(base+path,{...opts,headers,signal:opts.signal?AbortSignal.any([opts.signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
  async function cancel(){const id=job;job=null;ctrl?.abort();if(id)try{await call('/generate/status/'+id,{method:'DELETE'})}catch{}}
  halt.onclick=()=>{aiStatus.textContent=tr('නවත්වන ලදී','Cancelled');cancel()};
  make.onclick=async()=>{
