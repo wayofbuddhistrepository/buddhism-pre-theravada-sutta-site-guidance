@@ -44,4 +44,13 @@ with gr.Blocks(title="SuttaGo — grounded research") as demo:
     key=gr.Textbox(label="Access key",type="password")
     output=gr.Textbox(label="AI explanation",lines=8)
     gr.Button("Run").click(answer,[prompt,key],output,api_name="answer",concurrency_limit=1)
+    # Auxiliary CPU-only endpoint, no GPU allocation and no Gradio waiting queue.
+    from cpu_image import cpu_image
+    with gr.Accordion("CPU background generation",open=False):
+        ip=gr.Textbox(label="Image description")
+        seed=gr.Number(label="Seed",precision=0)
+        ik=gr.Textbox(label="Access key",type="password")
+        io=gr.Textbox(label="JPEG base64",visible=False)
+        gr.Button("Create background").click(cpu_image,[ip,seed,ik],io,
+            api_name="cpu_image",queue=False,concurrency_limit=None)
 demo.queue(max_size=3).launch()
