@@ -71,7 +71,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  function field(name,tag,value){add(editor,'label',name);let x=add(editor,tag);x.value=value;return x}
  const title=field(tr('මාතෘකාව','Title'),'input',cropWords(tidy(q),90));title.maxLength=100;
  const body=field(tr('දහම් සාරය (සංස්කරණය කළ හැක)','Editable Dhamma excerpt'),'textarea',extract(d)||cropWords(tidy(d.answer),400));body.rows=5;body.maxLength=900;
- const flow=field(tr('ගැලීම් සටහන — අවශ්‍ය නම්, එක් පේළියකට එක් කරුණක්','Optional flow diagram — one step per line'),'textarea','');flow.rows=3;flow.maxLength=240;
+ const flow=field(tr('පෝස්ටරයට අමතර කරුණු (අවශ්‍ය නම්)','Optional poster notes — one point per line'),'textarea','');flow.rows=3;flow.maxLength=240;
  const refs=field(tr('මූලාශ්‍ර','Sources'),'input',(d.sources||[]).slice(0,3).map(s=>s.canonicalId||s.title||s.id).map(tidy).join(' · '));refs.maxLength=180;
  const controls=add(editor,'div');controls.className='poster-grid';
  function select(label,opts){let box=add(controls,'div');add(box,'label',label);let el=add(box,'select');for(const [v,n] of opts){let o=add(el,'option',n);o.value=v}return el}
@@ -95,31 +95,81 @@ window.SuttaPoster={attach(ar,d,q,l){
   await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):tr('ක්ෂණික භූදර්ශනය සූදානම් (AI නොවේ).','Instant illustration ready (not AI).');make.disabled=false;
  };
 
- const diagram=add(editor,'details');add(diagram,'summary',tr('උසස් ගැලීම් සටහන (Mermaid)','Advanced flowchart (Mermaid)'));
- add(diagram,'small',tr('මුල් සූත්‍රයට අනුව කරුණු අනුපිළිවෙළින් ලියන්න. ඊතල මඟින් සම්බන්ධතාවයක් දක්වන නිසා එය නිවැරදිද පරීක්ෂා කරන්න.','Enter source-verified steps in order. Check that the arrows express the intended relationship.'));
- const diagramInput=add(diagram,'textarea');diagramInput.rows=5;diagramInput.maxLength=1000;diagramInput.placeholder=tr('එක් පේළියකට එක් කරුණක් (2–12)','One step per line (2–12)');
- const diagramGo=add(diagram,'button',tr('ගැලීම් සටහන සාදන්න','Render flowchart'));diagramGo.type='button';
- const diagramStatus=add(diagram,'small','');const diagramView=add(diagram,'div');diagramView.style.cssText='overflow:auto;background:white;padding:10px;margin-top:8px;border-radius:8px';
- const svgSave=add(diagram,'button','SVG');svgSave.type='button';svgSave.disabled=true;let svgText='';
- diagramGo.onclick=async()=>{
-  diagramGo.disabled=true;svgSave.disabled=true;diagramView.replaceChildren();svgText='';
+
+ // Extract complete statements from the displayed answer, keeping citation markers.
+ // Group them under the question; never infer causal arrows from list order.
+ const diagram=add(editor,'details');diagram.className='auto-dhamma-diagram';
+ add(diagram,'summary',tr('ස්වයංක්‍රීය ධර්ම සටහන','Automatic Dhamma diagram'));
+ add(diagram,'small',tr('පිළිතුරේ කරුණු ස්වයංක්‍රීයව සටහනකට ගනී. රේඛා මඟින් කරුණු එකම මාතෘකාවට අදාළ බව පමණක් දක්වයි.','Automatically groups statements from the answer. Lines show topic membership, not causal relationships.'));
+ const diagramGo=add(diagram,'button',tr('ස්වයංක්‍රීයව සටහන සාදන්න','Create diagram automatically'));diagramGo.type='button';
+ const diagramStatus=add(diagram,'small',''),diagramView=add(diagram,'div');diagramView.style.cssText='overflow:auto;background:#fffdf6;border-radius:8px;margin-top:8px';
+ const downloads=add(diagram,'div');downloads.className='poster-actions';
+ const svgSave=add(downloads,'button','SVG'),diagramPng=add(downloads,'button','PNG');svgSave.type=diagramPng.type='button';svgSave.disabled=diagramPng.disabled=true;
+ let svgText='',diagramCanvas=null,diagramReady=false;
+ function points(){
+  const text=String(d.answer||'').replace(/<[^>]*>/g,'').replace(/\*\*|__/g,'').replace(/\r/g,'');
+  const all=[];
+  for(const line of text.split(/\n+/)){
+   const t=line.replace(/^\s*(?:#{1,6}\s*|[-*•]\s*|\d+[.)]\s+)/,'').trim();
+   // Avoid splitting decimal sutta numbers, and retain citation suffixes.
+   const chunks=t.split(/(?<=[.!?।])\s+(?!\[S\d+\])/u);
+   for(const raw of chunks){
+    const v=raw.replace(/\s+/g,' ').trim();
+    if(v.length>=24&&v.length<=260&&!/^(?:මූලාශ්‍ර|Sources|References|AI විග්‍රහයක් නොවේ|Based on the provided|සපයන ලද මූලාශ්‍ර)/i.test(v)&&!all.includes(v))all.push(v);
+   }
+  }
+  // Citation-bearing statements first, while preserving the original order within each group.
+  return [...all.filter(v=>/\[S\d+\]/.test(v)),...all.filter(v=>!/\[S\d+\]/.test(v))].slice(0,5);
+ }
+ async function makeDiagram(){
+  diagramGo.disabled=true;svgSave.disabled=diagramPng.disabled=true;diagramView.replaceChildren();svgText='';diagramReady=false;
   try{
-   const steps=diagramInput.value.split(/\n/).map(x=>x.trim()).filter(Boolean);
-   if(steps.length<2||steps.length>12||steps.some(x=>x.length>100||! /^[\p{L}\p{M}\p{N}\s.,:;()\-–—]+$/u.test(x)))throw Error('invalid');
-   diagramStatus.textContent=tr('සටහන නිර්මාණය වෙමින්…','Rendering diagram…');
-   const mermaid=(await import('https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.esm.min.mjs')).default;
-   await document.fonts.ready;
-   mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',flowchart:{htmlLabels:false},themeVariables:{fontFamily:'Noto Sans Sinhala, sans-serif',fontSize:'18px',primaryColor:'#eef5e7',primaryTextColor:'#163d31',primaryBorderColor:'#668973',lineColor:'#64816e'}});
-   const code='flowchart TD\n'+steps.map((v,i)=>'N'+i+'["'+v+'"]').join('\n')+'\n'+steps.slice(1).map((v,i)=>'N'+i+' --> N'+(i+1)).join('\n');
-   const result=await mermaid.render('suttaFlow'+Date.now(),code);
-   const parsed=new DOMParser().parseFromString(result.svg,'image/svg+xml');if(parsed.querySelector('parsererror,script,foreignObject'))throw Error('invalid svg');
-   const svg=parsed.documentElement;for(const el of svg.querySelectorAll('*'))for(const at of [...el.attributes])if(at.name.startsWith('on')||(/href$/i.test(at.name)&&!at.value.startsWith('#')))el.removeAttribute(at.name);
-   svg.setAttribute('width','100%');svg.setAttribute('height','auto');diagramView.append(document.importNode(svg,true));svgText=new XMLSerializer().serializeToString(svg);svgSave.disabled=false;
-   diagramStatus.textContent=tr('SVG සටහන සූදානම්. පෝස්ටරයට දැනට වෙනම කෙටි ගැලීම් සටහන භාවිත කරන්න.','SVG ready. Use the separate short flow field for the poster itself.');
-  }catch(e){diagramStatus.textContent=e.message==='invalid'?tr('කරුණු 2–12ක්, පේළියකට අකුරු 100ක් දක්වා ලියන්න.','Use 2–12 steps, up to 100 characters per line.'):tr('Mermaid සටහන සෑදීමට නොහැකි විය.','Mermaid diagram unavailable.')}
+   const items=points();
+   if(items.length<2){diagramStatus.textContent=tr('සටහනකට ප්‍රමාණවත් සම්පූර්ණ කරුණු දෙකක් පිළිතුරේ නොමැත.','The answer does not contain two suitable complete statements for a diagram.');return}
+   await Promise.race([document.fonts.load('600 30px "Noto Sans Sinhala"','සිංහල ධර්මය'),new Promise(r=>setTimeout(r,2000))]).catch(()=>{});
+   const W=960,margin=44,cardX=110,cardW=806,pad=30;
+   const c=document.createElement('canvas'),measure=c.getContext('2d'),family='"Noto Sans Sinhala", sans-serif';
+   measure.font='600 33px '+family;
+   const heading=lines(measure,cropWords(tidy(q),140),W-2*margin-2*pad);
+   const headH=heading.length*48+64;
+   measure.font='400 28px '+family;
+   const cards=items.map(t=>{const ls=lines(measure,t,cardW-pad*2-54);return {ls,h:Math.max(100,ls.length*44+48)}});
+   const sourceNote=tr('පිළිතුරෙන් උපුටාගත් කරුණු • මුල් සූත්‍ර සමඟ සසඳන්න','Extracted from the answer • check against the original sources');
+   const H=margin+headH+40+cards.reduce((n,x)=>n+x.h+24,0)+72;
+   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
+   svg.setAttribute('xmlns',ns);svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('width',W);svg.setAttribute('height',H);
+   svg.setAttribute('role','img');svg.setAttribute('aria-label',tr('ස්වයංක්‍රීය ධර්ම කරුණු සටහන','Automatic Dhamma concept map'));
+   const el=(tag,attrs,txt)=>{let n=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,String(v));if(txt!==undefined)n.textContent=txt;svg.append(n);return n};
+   c.width=1080;c.height=Math.ceil(H*1080/W);const ctx=c.getContext('2d');ctx.scale(1080/W,1080/W);
+   function rect(x,y,w,h,r,fill,stroke){el('rect',{x,y,width:w,height:h,rx:r,fill,...(stroke?{stroke,'stroke-width':2}:{})});ctx.fillStyle=fill;rounded(ctx,x,y,w,h,r);ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke()}}
+   function line(x1,y1,x2,y2){el('path',{d:'M'+x1+' '+y1+' H'+x2+' V'+y2,fill:'none',stroke:'#8ca99a','stroke-width':3});ctx.strokeStyle='#8ca99a';ctx.lineWidth=3;ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y1);ctx.lineTo(x2,y2);ctx.stroke()}
+   function text(x,y,t,size,weight,color){el('text',{x,y,'font-family':'Noto Sans Sinhala, sans-serif','font-size':size,'font-weight':weight,fill:color},t);ctx.font=weight+' '+size+'px '+family;ctx.fillStyle=color;ctx.textBaseline='alphabetic';ctx.fillText(t,x,y)}
+   rect(0,0,W,H,0,'#f9f7ee');
+   rect(margin,margin,W-2*margin,headH,22,'#164b40');
+   heading.forEach((v,i)=>text(margin+pad,margin+48+i*48,v,33,600,'#fff1c8'));
+   const startY=margin+headH+40,spine=72;
+   let cy=startY;
+   line(spine,margin+headH,spine,startY+cards.slice(0,-1).reduce((n,x)=>n+x.h+24,0)+cards.at(-1).h/2);
+   for(let i=0;i<cards.length;i++){
+    const {ls,h}=cards[i];line(spine,cy+h/2,cardX,cy+h/2);
+    rect(cardX,cy,cardW,h,18,'#e9f0e5','#a5bca8');
+    text(cardX+pad,cy+47,String(i+1).padStart(2,'0'),24,600,'#557b67');
+    ls.forEach((v,j)=>text(cardX+pad+54,cy+47+j*44,v,28,400,'#183e32'));
+    cy+=h+24;
+   }
+   text(margin,H-30,sourceNote,20,400,'#49695c');
+   svgText=new XMLSerializer().serializeToString(svg);
+   svg.style.cssText='display:block;width:100%;height:auto';diagramView.append(svg);
+   diagramCanvas=c;diagramReady=true;svgSave.disabled=diagramPng.disabled=false;
+   diagramStatus.textContent=tr('පිළිතුරේ කරුණු '+items.length+'ක් ස්වයංක්‍රීයව එක් කළා.','Automatically added '+items.length+' statements from the answer.');
+  }catch(e){diagramStatus.textContent=tr('සටහන සෑදීමට නොහැකි විය. නැවත උත්සාහ කරන්න.','Could not create the diagram. Try again.')}
   finally{diagramGo.disabled=false}
- };
- svgSave.onclick=()=>{if(!svgText)return;const url=URL.createObjectURL(new Blob([svgText],{type:'image/svg+xml'}));const a=document.createElement('a');a.href=url;a.download='suttago-flow.svg';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000)};
+ }
+ function diagramDownload(blob,name){const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),30000)}
+ diagramGo.onclick=makeDiagram;
+ diagram.addEventListener('toggle',()=>{if(diagram.open&&!diagramReady&&!diagramGo.disabled)makeDiagram()});
+ svgSave.onclick=()=>{if(svgText)diagramDownload(new Blob([svgText],{type:'image/svg+xml'}),'suttago-dhamma-diagram.svg')};
+ diagramPng.onclick=()=>{if(diagramCanvas)diagramCanvas.toBlob(b=>{if(b)diagramDownload(b,'suttago-dhamma-diagram.png')},'image/png')};
 
  const actions=add(editor,'div');actions.className='poster-actions';const preview=add(actions,'button',tr('රූපය සාදන්න','Render poster')),png=add(actions,'button','PNG'),jpg=add(actions,'button','JPG');for(let x of [preview,png,jpg])x.type='button';png.disabled=jpg.disabled=true;
  const status=add(editor,'small',''),canvas=add(editor,'canvas');canvas.setAttribute('aria-label',tr('දහම් පෝස්ටර පෙරදසුන','Dhamma poster preview'));
@@ -145,7 +195,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    y=textBlock(ctx,title.value||tr('ධර්ම විග්‍රහය','Dhamma reflection'),x,y,w,landscape?130:160,landscape?48:54,30,'700',family,'#f9e2ad')+18;
    ctx.strokeStyle='#d6bc83';ctx.lineWidth=1.3;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+w,y);ctx.stroke();y+=20;
    if(body.value.trim())y=textBlock(ctx,body.value,x,y,w,bottom-y-footerH-flowH-12,landscape?30:36,23,'400',family,'#fffdf4')+12;
-   if(steps.length){for(let i=0;i<steps.length;i++){ctx.fillStyle='rgba(236,212,160,.12)';rounded(ctx,x,y,w,45,9);ctx.fill();textBlock(ctx,steps[i],x+12,y+5,w-24,36,26,20,'600',family,'#fbe3ae');y+=49;if(i<steps.length-1){ctx.fillStyle='#ecd4a0';ctx.font='20px sans-serif';ctx.fillText('↓',x+w/2-7,y-3);y+=8}}}
+   if(steps.length){for(let i=0;i<steps.length;i++){ctx.fillStyle='rgba(236,212,160,.12)';rounded(ctx,x,y,w,45,9);ctx.fill();textBlock(ctx,steps[i],x+12,y+5,w-24,36,26,20,'600',family,'#fbe3ae');y+=49;if(i<steps.length-1){ctx.fillStyle='#ecd4a0';ctx.font='20px sans-serif';ctx.fillText('·',x+w/2-7,y-3);y+=8}}}
    if(refs.value.trim())textBlock(ctx,tr('මූලාශ්‍ර: ','Sources: ')+refs.value,x,bottom-footerH+5,w,footerH-8,22,17,'400',family,'#ecd4a0');
    status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?tr('CPU AI පසුබිම + පෙළ','CPU AI background + text'):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
    png.disabled=jpg.disabled=false;
