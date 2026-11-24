@@ -1,0 +1,44 @@
+name: SuttaGo extended grounding stack
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-grounding-stack.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  crawler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python -m pip install scrapy trafilatura
+      - run: python research-lab/scripts/grounding_stack_smoke.py
+  vector-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install faiss-cpu sentence-transformers lightrag-hku networkx
+      - run: python research-lab/scripts/vector_graph_smoke.py
+        env:
+          OMP_NUM_THREADS: '2'
+          TOKENIZERS_PARALLELISM: 'false'
+  syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: |
+          node --check research-lab/api/ask.js
+          cp research-lab/local-ai.js /tmp/local-ai.mjs
+          node --check /tmp/local-ai.mjs
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          s=Path('research-lab/index.html').read_text()
+          Path('/tmp/ui.js').write_text(re.search(r'<script>(.*?)</script>',s,re.S)[1])
+          PY
+          node --check /tmp/ui.js
