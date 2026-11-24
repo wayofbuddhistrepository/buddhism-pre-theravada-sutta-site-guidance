@@ -29,3 +29,5 @@ jobs:
             /tmp/auto-dhamma-diagram.png
 
 # Re-run with distinct export controls.
+
+# Verify editable diagrams and shared content guidance.
