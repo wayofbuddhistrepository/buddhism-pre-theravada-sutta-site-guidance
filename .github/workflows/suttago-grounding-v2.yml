@@ -1,0 +1,16 @@
+name: SuttaGo source-grounding regression
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-grounding-v2.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: node --check research-lab/api/ask.js
+      - run: node research-lab/scripts/test_grounding_v2.cjs
