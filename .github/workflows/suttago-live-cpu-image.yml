@@ -1,0 +1,22 @@
+name: SuttaGo live CPU image service
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-live-cpu-image.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: suttago-hf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python -m py_compile research-lab/hf-space/app.py research-lab/hf-space/cpu_image.py
+      - run: python -m pip install huggingface_hub==2.4.0
+      - run: python research-lab/scripts/publish_cpu_image_existing.py
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
