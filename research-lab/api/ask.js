@@ -284,3 +284,30 @@ module.exports=async(req,res)=>{
  }
  return earlierHandler(req,res);
 };
+
+// Official SuttaCentral parallel metadata. Restrict links to Pāli canon IDs;
+// segment-level parallels are not claims of full doctrinal equivalence.
+const knownCrossIds={'sn-2-1-7-1':'sn12.61','an-1-5-9':'an1.49','mn-1-1-10':'mn10','mn-1-2-10':'mn20','sn-2-3-1-6':'sn15.6','sn-2-3-1-5':'sn15.5','sn-5-12-2-1':'sn56.11','sn-2-1-1-1':'sn12.1','sn-2-1-2-10':'sn12.20','dn-2-3':'dn16','mn-1-1-2':'mn2'};
+const parallelUrl='https://raw.githubusercontent.com/suttacentral/sc-data/master/relationship/parallels.json';
+let parallelCache=null,parallelTime=0;
+const parallelId=x=>String(x).replace(/^~/,'').split('#')[0];
+const validParallel=x=>/^(?:dn|mn|sn|an|snp|dhp|ud|iti|thag|thig|ja)\d+(?:\.\d+)?(?:-\d+)?$/.test(x);
+async function relatedSuttas(id){
+ if(id.startsWith('bjt:'))id=knownCrossIds[id.slice(4)]||'';
+ if(!validParallel(id))return [];
+ if(!parallelCache||Date.now()-parallelTime>3600000){let r=await fetch(parallelUrl,{signal:AbortSignal.timeout(6000)});if(!r.ok)return [];parallelCache=await r.json();parallelTime=Date.now()}
+ const found=new Map();
+ for(const row of parallelCache){let p=row.parallels;if(!Array.isArray(p))continue;let matches=p.filter(x=>parallelId(x)===id);if(!matches.length)continue;
+ for(const raw of p){const other=parallelId(raw);if(other===id||!validParallel(other))continue;
+ const type=String(raw).startsWith('~')||matches.every(x=>String(x).startsWith('~'))?'related':String(raw).includes('#')||matches.every(x=>String(x).includes('#'))?'passage_parallel':'parallel';
+ let prev=found.get(other);if(!prev||prev.type==='related')found.set(other,{id:other,type,url:'https://suttacentral.net/'+other,source:'SuttaCentral parallel metadata'});
+ }}
+ return [...found.values()].sort((a,b)=>Number(a.type==='related')-Number(b.type==='related')).slice(0,8);
+}
+const beforeRelated=module.exports;
+module.exports=async(req,res)=>{
+ if(req.method==='GET'&&typeof req.query.related==='string'&&req.query.related.length<80){
+  try{res.setHeader('Cache-Control','public, max-age=3600');return res.json({related:await relatedSuttas(norm(req.query.related)),source:parallelUrl})}catch{return res.status(503).json({related:[]})}
+ }
+ return beforeRelated(req,res);
+};
