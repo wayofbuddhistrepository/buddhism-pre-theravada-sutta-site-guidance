@@ -131,7 +131,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    if(r.ok){const blob=await r.blob();if(!/^image\/(?:png|jpeg|webp)$/.test(blob.type)||blob.size>12000000)throw Error('invalid image');uploadUrl=URL.createObjectURL(blob);uploaded=await load(uploadUrl);bg.value='upload';artOrigin='cpu-ai'}
   }catch{}
   if(!uploaded)await tryPreset(p);
-  await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):artOrigin==='cpu-preset'?tr('CPU මඟින් පෙර නිර්මාණය කළ AI පසුබිමක්.','Previously CPU-generated AI background.'):tr('නව භූදර්ශනය සූදානම් (AI නොවේ).','New illustrated landscape (not AI).');make.disabled=false;
+  await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):artOrigin==='cpu-preset'?tr('අලුත් AI රූපය නොලැබුණු නිසා පෙර නිර්මාණය කළ පසුබිමක් භාවිත වේ.','New AI generation unavailable; using a previously generated background.'):tr('නව භූදර්ශනය සූදානම් (AI නොවේ).','New illustrated landscape (not AI).');make.disabled=false;
  };
 
 
