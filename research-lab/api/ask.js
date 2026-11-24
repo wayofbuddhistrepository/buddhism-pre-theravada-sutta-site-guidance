@@ -629,7 +629,7 @@ module.exports=async(req,res)=>{
   let local=work[0].status==='fulfilled'?work[0].value:null;
   let live=work.slice(1).flatMap(x=>x.status==='fulfilled'&&Array.isArray(x.value)?x.value:[]);
   let pool=[...(local?.sources||[]).map(s=>({...s,team:'corpus'})),...live.map(s=>({...s,team:'live'}))];
-  let unique=[];for(let s of pool){if(!s?.id||!s.primary)continue;let other=unique.find(x=>x.id===s.id||sameSource(x,s));if(other){if(other.team!==s.team){other.comparisonUrl=s.primary;other.comparisonOrigin=s.origin||'Original source'}continue}unique.push(s)}
+  let unique=[];for(let s of pool){if(!s?.id||!s.primary)continue;if(/^bjt:vp-/i.test(s.id)&&!/(?:විනය|විනයපිටක|උපසම්පදා|පාතිමොක්ඛ|vinaya|monastic discipline)/iu.test(q))continue;let other=unique.find(x=>x.id===s.id||sameSource(x,s));if(other){if(other.team!==s.team){other.comparisonUrl=s.primary;other.comparisonOrigin=s.origin||'Original source'}continue}unique.push(s)}
   // Source verification team retrieves original pages in parallel before generation.
   let original=await Promise.allSettled(unique.slice(0,plan.deep?10:6).map(s=>originalEvidence(s,l,plan)));
   let verified=original.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value).sort((a,b)=>b.score-a.score);
@@ -638,12 +638,12 @@ module.exports=async(req,res)=>{
   const coverage=plan.groups.filter((g,i)=>selected.some(s=>facetsFor(s,plan).includes(i))).length;
   ctx.collect=false;
   // Analysis/writing team: single grounded model attempt chain after retrieval, not one call per crawler.
-  let answer=selected.length?await reasoning(q,l,selected.map(s=>({title:s.title,text:s.originalEvidence}))):null;
+  let answer=selected.length&&coverage===plan.groups.length?await reasoning(q,l,selected.map(s=>({title:s.title,text:s.originalEvidence}))):null;
   const reviewed=local?.sources?.length&&/සකස් කළ|reviewed|Curated/i.test(local.label||'')&&!/candidate|දත්ත දර්ශකය/i.test(local.label||'');
   let result;
   if(answer)result={label:l==='si'?'AI විග්‍රහය — මූලාශ්‍ර සමඟ සසඳන්න':l==='en'?'AI explanation — compare sources':'AI vaṇṇanā',answer,sources:selected.map(s=>({...s,detail:s.originalEvidence,originalEvidence:undefined}))};
   else if(reviewed)result=local;
   else result={label:l==='si'?'සූත්‍ර පර්යේෂණ සාක්ෂි (AI විග්‍රහයක් නොවේ)':l==='en'?'Research evidence (not AI-generated)':'Mūlapāṭha pariyesanā',answer:l==='si'?(coverage<plan.groups.length?'විමසුමේ සියලු අංශ සඳහා ප්‍රමාණවත් මුල් සාක්ෂි හමු නොවීය. පහත දැක්වෙන්නේ හමු වූ මූලාශ්‍ර පමණි.':'මුල් මූලාශ්‍ර පරීක්ෂා කර ඇත. විශ්වාසදායක AI විග්‍රහයක් මේ අවස්ථාවේ ලබාගත නොහැකි බැවින් සාක්ෂි පාඨ පමණක් පෙන්වයි.'):l==='en'?'Original source candidates are shown. A validated AI explanation is not available; some aspects may remain unanswered.':'Mūlapāṭhāni passatha.',sources:selected.map(s=>({...s,detail:s.originalEvidence,originalEvidence:undefined}))};
-  return res.json({...result,grounding:{generated:!!answer,local:local?.sources?.length||0,live:live.length,verified:verified.length,facets:plan.groups.length,covered:coverage,mode:plan.level},research:{mode:plan.level,teams:lanes.map((x,i)=>({name:x.name,status:work[i].status==='fulfilled'?'completed':'unavailable',count:i===0?(local?.sources?.length||0):(Array.isArray(work[i].value)?work[i].value.length:0)})),verified:verified.length,model:ctx.model,attempts:ctx.attempts}});
+  return res.json({...result,localEvidence:!answer&&coverage===plan.groups.length?selected.map(s=>({id:s.id,title:s.title,text:s.originalEvidence,primary:s.primary})):[],grounding:{generated:!!answer,local:local?.sources?.length||0,live:live.length,verified:verified.length,facets:plan.groups.length,covered:coverage,mode:plan.level},research:{mode:plan.level,teams:lanes.map((x,i)=>({name:x.name,status:work[i].status==='fulfilled'?'completed':'unavailable',count:i===0?(local?.sources?.length||0):(Array.isArray(work[i].value)?work[i].value.length:0)})),verified:verified.length,model:ctx.model,attempts:ctx.attempts}});
  });
 };
