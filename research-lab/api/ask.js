@@ -127,3 +127,50 @@ module.exports=async(req,res)=>{
  const answer=ai|| (l==='si'?'ඔබගේ විමසුමට අදාළ විය හැකි මුල් ත්‍රිපිටක පාඨ පහතින් දැක්වේ. මෙය AI විග්‍රහයක් නොව, මුල් මූලාශ්‍රයෙන් ලබාගත් පාඨ කොටස්ය. සම්පූර්ණ සූත්‍රය පහතින් විවෘත කරන්න.':'Mūlapāṭhāni passatha.')+'\n\n'+sources.map((s,i)=>'[S'+(i+1)+'] '+s.title+'\n'+s.detail).join('\n\n');
  return res.json({label:ai?(l==='si'?'AI විග්‍රහය — මූලාශ්‍ර සමඟ සසඳන්න':'AI vaṇṇanā'):(l==='si'?'බුද්ධ ජයන්ති ත්‍රිපිටකය — Tipitaka.lk මූලාශ්‍ර':'Tipitaka.lk · mūlapāṭha'),answer,sources});
 };
+
+// Conservative relevance policy: title match, explicit source identifier, or reviewed topical evidence.
+// A generic word appearing in a paragraph is never enough to assert relevance.
+const originalLiveSearch=liveSearch;
+const mindTopic=[
+ {id:'sn12.61',key:'sn-2-1-7-1',title:'අස්සුතවන්තු සූත්‍රය',en:'Uninstructed (1)',si:'සිත, මනස සහ විඤ්ඤාණය ලෙස මෙහි හඳුන්වන මානසික ක්‍රියාවලිය නිරතුරුව වෙනස් වෙයි. වඳුරෙකු එක අත්තක් අතහැර තවත් අත්තක් අල්ලාගන්නා උපමාවෙන් එහි උපදීම හා නැතිවීම පෙන්වයි. එබැවින් සිත ස්ථිර ආත්මයක් ලෙස අල්ලා ගැනීම යෝග්‍ය නොවේ.',eng:'The discourse uses the monkey moving from branch to branch to explain the successive arising and cessation of what is called mind, mentality and consciousness. It directs the disciple toward dependent origination rather than treating the mind as a permanent self.'},
+ {id:'mn10',key:'mn-1-1-10',title:'සතිපට්ඨාන සූත්‍රය',en:'Mindfulness Meditation',si:'චිත්තානුපස්සනාවේදී රාග සහිත හා රාග රහිත සිත, ද්වේෂ සහිත හා ද්වේෂ රහිත සිත, මෝහ සහිත හා මෝහ රහිත සිත ආදී මානසික තත්ත්ව ඒ ඒ ආකාරයෙන් හඳුනාගැනීමට උගන්වයි. සිතෙහි හටගැනීම හා නැතිවීම ද නිරීක්ෂණය කරයි.',eng:'Contemplation of mind involves recognizing states such as mind with or without greed, hatred and delusion, and observing arising and passing away.'},
+ {id:'mn20',key:'mn-1-2-10',title:'විතක්කසණ්ඨාන සූත්‍රය',en:'How to Stop Thinking',si:'අකුසල සිතුවිලි ඇති වූ විට කුසල අරමුණකට යොමු වීම, ඒ සිතුවිලිවල ආදීනව දැකීම, ඒවාට අවධානය නොදීම, ඒවා ඇතිකරන ක්‍රියාවලිය සන්සිඳවීම සහ අවසාන උපක්‍රමය ලෙස දැඩි උත්සාහයෙන් සිත සංවර කිරීම යන ක්‍රම පහ විස්තර කරයි.',eng:'The discourse sets out five graduated ways to abandon unskillful thoughts, beginning with changing the subject and considering their drawbacks.'}
+];
+function isMindOverview(q){
+ let x=clean(q);let t=terms(q);
+ return /^(?:(?:බුදුදහම අනුව|බුද්ධ ධර්මය අනුව|බෞද්ධ දර්ශනය අනුව) )?(?:සිත|සිතේ ස්වභාවය|චිත්තය|මනස|සිත පිළිබඳ)(?: |$)/u.test(x) && !/(?:ස්ත්‍රී|පුරුෂ|රාග|කාම|විතක්ක|සූත්‍රය|අභිධර්ම|චෛතසික)/u.test(x) && t.length<=5 ||
+ /^(?:what is (?:the )?mind|explain (?:the )?mind|(?:tell me|describe) (?:about )?(?:the )?mind|(?:the )?nature of (?:the )?mind|mind in buddhism|citta)(?: |$)/i.test(x)&&x.split(' ').length<=12;
+}
+async function reviewedMind(q,l){
+ let results=await Promise.allSettled(mindTopic.map(async m=>{
+   let d=l==='en'?await englishRoot(m.id):await nodeText(m.key,'si');
+   if(!d)return null;return {m,d};
+ }));
+ let docs=results.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value);
+ if(docs.length!==3)return null;
+ let sources=docs.map(({m,d})=>({id:l==='si'?'bjt:'+m.key:m.id,title:l==='si'?m.title:m.en,detail:l==='si'?m.si:m.eng,primary:l==='si'?'https://tipitaka.lk/'+m.key+'/sinh':'https://suttacentral.net/'+m.id+'/en/sujato',pali:l==='si'?'https://tipitaka.lk/'+m.key+'/pali':'https://suttacentral.net/'+m.id+'/pli/ms',commentary:null,canonicalId:m.id.toUpperCase()}));
+ let evidence=docs.map(({m,d})=>({title:m.id,text:d.text||d.lines.join('\n')}));
+ let answer=await reasoning(q,l,evidence);
+ if(!answer)answer=(l==='si'?'ථේරවාදී සූත්‍ර අනුව සිත ගැන විමසීමේදී එහි අනිත්‍ය ස්වභාවය, පවතින මානසික තත්ත්ව හඳුනාගැනීම සහ අකුසල සිතුවිලි පාලනය කිරීම යන කරුණු තුන වැදගත් වේ.':'Three useful aspects of mind in the early discourses are impermanence, awareness of mental states and cultivation of skillful thinking.')+'\n\n'+sources.map((s,i)=>'[S'+(i+1)+'] '+s.canonicalId+' — '+s.title+'\n'+s.detail).join('\n\n');
+ return {label:l==='si'?'මූලාශ්‍ර මත සකස් කළ ධර්ම විග්‍රහය'+(process.env.SUTTA_ENABLE_MODEL==='1'?'':' · සකස් කළ සාරාංශය'):'Source-based explanation · reviewed topic',answer,sources};
+}
+// Replace arbitrary full-text snippets with exact title retrieval only.
+// Future semantic results must clear a relevance gate; never sort by source order.
+liveSearch=async function(q,lang){
+ let idx;try{idx=await titleIndex()}catch{return []}
+ const query=compact(terms(q).join(' '));if(query.length<5)return [];
+ const matches=idx.filter(x=>!/^[-.\d\s]+$/.test(x.sinh||'')&&x.level!==0)
+ .map(x=>({...x,score:titleScore(q,x)})).filter(x=>x.score>=100)
+ .filter(x=>/(?:සූත්|සුත්ත|සූත‍්‍ර|සුත‍්ත|සුත්)/u.test(norm((x.sinh||'')+' '+(x.pali||''))))
+ .sort((a,b)=>b.score-a.score).slice(0,3);
+ let result=await Promise.allSettled(matches.map(x=>nodeText(x.key,lang)));
+ return result.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value);
+};
+const groundedHandler=module.exports;
+module.exports=async(req,res)=>{
+ if(req.method==='POST'&&typeof req.body?.q==='string'&&req.body.q.length<=500){
+  const l=req.body.lang==='si'?'si':req.body.lang==='en'?'en':'pli';
+  if(l!=='pli'&&isMindOverview(req.body.q)){try{let d=await reviewedMind(req.body.q,l);if(d){res.setHeader('Cache-Control','no-store');res.setHeader('X-Robots-Tag','noindex');return res.json(d)}}catch{}}
+ }
+ return groundedHandler(req,res);
+};
