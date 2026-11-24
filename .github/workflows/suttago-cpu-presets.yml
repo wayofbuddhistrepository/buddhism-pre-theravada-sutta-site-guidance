@@ -1,0 +1,38 @@
+name: SuttaGo diverse CPU-generated backgrounds
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-cpu-presets.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --only-binary=tokenizers 'diffusers==0.35.2' 'transformers==4.55.4' 'tokenizers==0.21.4' 'huggingface_hub>=0.34,<1' accelerate pillow safetensors
+      - run: python research-lab/scripts/cpu_poster_presets.py
+      - run: |
+          set -eu
+          mv poster-presets /tmp/suttago-presets
+          if git ls-remote --exit-code --heads origin suttago-poster-assets >/dev/null; then
+            git fetch origin suttago-poster-assets
+            git checkout -B suttago-poster-assets FETCH_HEAD
+          else
+            git checkout --orphan suttago-poster-assets
+            git rm -rf .
+          fi
+          mkdir -p presets
+          cp /tmp/suttago-presets/* presets/
+          git add presets/
+          git config user.name 'SuttaGo CI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --quiet || git commit -m 'Publish diverse CPU-generated scene presets'
+          git push origin HEAD:refs/heads/suttago-poster-assets
