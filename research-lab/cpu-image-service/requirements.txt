@@ -1,0 +1,12 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.8.0+cpu
+torchvision==0.23.0+cpu
+diffusers==0.35.2
+transformers==4.55.4
+tokenizers==0.21.4
+huggingface_hub>=0.34,<1
+accelerate
+safetensors
+pillow
+fastapi
+uvicorn
