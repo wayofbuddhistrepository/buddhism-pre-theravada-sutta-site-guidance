@@ -5,3 +5,6 @@ torchvision
 torchaudio
 sentencepiece
 kernels
+
+diffusers==0.43.0
+Pillow
