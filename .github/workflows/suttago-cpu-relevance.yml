@@ -23,3 +23,5 @@ jobs:
           TOKENIZERS_PARALLELISM: 'false'
 
 # rerun with 8192-token context and citation gate
+
+# retry with explicit non-thinking chat prefill
