@@ -1,0 +1,66 @@
+name: SuttaGo real local GraphRAG evaluation
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-lightrag-local.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-graph:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install CPU-only graph and embedding runtime
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install lightrag-hku==1.5.8 sentence-transformers==6.3.0 huggingface_hub==2.4.0 networkx
+          mkdir -p /tmp/sutta-llama
+          curl -fsSL --retry 2 https://github.com/ggml-org/llama.cpp/releases/download/b12674/llama-b12674-bin-ubuntu-x64.tar.gz -o /tmp/llama.tar.gz
+          echo 'e777a38bb3e32e41046f4b998607e9d53a1e56dcbe385713f245e05fcdbac621  /tmp/llama.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/llama.tar.gz -C /tmp/sutta-llama
+      - name: Build and query actual LightRAG graph using local models
+        env:
+          OMP_NUM_THREADS: '2'
+          TOKENIZERS_PARALLELISM: 'false'
+        run: python research-lab/scripts/lightrag_local_cpu.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: local-graph-results
+          path: lightrag-result.json
+          retention-days: 7
+  hf-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: suttago-hf
+    steps:
+      - name: Check only previously configured dedicated credentials
+        env:
+          HF_TOKEN: ${{ secrets.SUTTAGO_HF_TOKEN }}
+          SUTTA_SPACE_KEY: ${{ secrets.SUTTAGO_SPACE_KEY }}
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$SUTTA_SPACE_KEY" ]; then
+            echo "Dedicated HF credentials not configured. No deployment attempted."
+            exit 0
+          fi
+          python -m pip install huggingface_hub==2.4.0
+          python - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          try:
+              api=HfApi(token=os.environ["HF_TOKEN"])
+              owner=api.whoami()["name"]
+              print("Dedicated HF credential valid.")
+              try:
+                  r=api.get_space_runtime(owner+"/suttago-reasoning-lab")
+                  print("Existing isolated Space runtime:",r.stage,r.hardware)
+              except Exception:
+                  print("No readable existing isolated runtime; no paid hardware was created.")
+          except Exception:
+              print("Dedicated HF authentication failed.")
+              raise SystemExit(1)
+          PY
