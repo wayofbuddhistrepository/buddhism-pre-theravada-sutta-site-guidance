@@ -116,6 +116,33 @@ window.SuttaPoster={attach(ar,d,q,l){
   finally{await cancel();ctrl=null;make.disabled=false;halt.disabled=true}
  };
 
+
+ const diagram=add(editor,'details');add(diagram,'summary',tr('උසස් ගැලීම් සටහන (Mermaid)','Advanced flowchart (Mermaid)'));
+ add(diagram,'small',tr('මුල් සූත්‍රයට අනුව කරුණු අනුපිළිවෙළින් ලියන්න. ඊතල මඟින් සම්බන්ධතාවයක් දක්වන නිසා එය නිවැරදිද පරීක්ෂා කරන්න.','Enter source-verified steps in order. Check that the arrows express the intended relationship.'));
+ const diagramInput=add(diagram,'textarea');diagramInput.rows=5;diagramInput.maxLength=1000;diagramInput.placeholder=tr('එක් පේළියකට එක් කරුණක් (2–12)','One step per line (2–12)');
+ const diagramGo=add(diagram,'button',tr('ගැලීම් සටහන සාදන්න','Render flowchart'));diagramGo.type='button';
+ const diagramStatus=add(diagram,'small','');const diagramView=add(diagram,'div');diagramView.style.cssText='overflow:auto;background:white;padding:10px;margin-top:8px;border-radius:8px';
+ const svgSave=add(diagram,'button','SVG');svgSave.type='button';svgSave.disabled=true;let svgText='';
+ diagramGo.onclick=async()=>{
+  diagramGo.disabled=true;svgSave.disabled=true;diagramView.replaceChildren();svgText='';
+  try{
+   const steps=diagramInput.value.split(/\n/).map(x=>x.trim()).filter(Boolean);
+   if(steps.length<2||steps.length>12||steps.some(x=>x.length>100||! /^[\p{L}\p{M}\p{N}\s.,:;()\-–—]+$/u.test(x)))throw Error('invalid');
+   diagramStatus.textContent=tr('සටහන නිර්මාණය වෙමින්…','Rendering diagram…');
+   const mermaid=(await import('https://cdn.jsdelivr.net/npm/mermaid@11.12.2/dist/mermaid.esm.min.mjs')).default;
+   await document.fonts.ready;
+   mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:'base',flowchart:{htmlLabels:false},themeVariables:{fontFamily:'Noto Sans Sinhala, sans-serif',fontSize:'18px',primaryColor:'#eef5e7',primaryTextColor:'#163d31',primaryBorderColor:'#668973',lineColor:'#64816e'}});
+   const code='flowchart TD\n'+steps.map((v,i)=>'N'+i+'["'+v+'"]').join('\n')+'\n'+steps.slice(1).map((v,i)=>'N'+i+' --> N'+(i+1)).join('\n');
+   const result=await mermaid.render('suttaFlow'+Date.now(),code);
+   const parsed=new DOMParser().parseFromString(result.svg,'image/svg+xml');if(parsed.querySelector('parsererror,script,foreignObject'))throw Error('invalid svg');
+   const svg=parsed.documentElement;for(const el of svg.querySelectorAll('*'))for(const at of [...el.attributes])if(at.name.startsWith('on')||(/href$/i.test(at.name)&&!at.value.startsWith('#')))el.removeAttribute(at.name);
+   svg.setAttribute('width','100%');svg.setAttribute('height','auto');diagramView.append(document.importNode(svg,true));svgText=new XMLSerializer().serializeToString(svg);svgSave.disabled=false;
+   diagramStatus.textContent=tr('SVG සටහන සූදානම්. පෝස්ටරයට දැනට වෙනම කෙටි ගැලීම් සටහන භාවිත කරන්න.','SVG ready. Use the separate short flow field for the poster itself.');
+  }catch(e){diagramStatus.textContent=e.message==='invalid'?tr('කරුණු 2–12ක්, පේළියකට අකුරු 100ක් දක්වා ලියන්න.','Use 2–12 steps, up to 100 characters per line.'):tr('Mermaid සටහන සෑදීමට නොහැකි විය.','Mermaid diagram unavailable.')}
+  finally{diagramGo.disabled=false}
+ };
+ svgSave.onclick=()=>{if(!svgText)return;const url=URL.createObjectURL(new Blob([svgText],{type:'image/svg+xml'}));const a=document.createElement('a');a.href=url;a.download='suttago-flow.svg';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000)};
+
  const actions=add(editor,'div');actions.className='poster-actions';const preview=add(actions,'button',tr('රූපය සාදන්න','Render poster')),png=add(actions,'button','PNG'),jpg=add(actions,'button','JPG');for(let x of [preview,png,jpg])x.type='button';png.disabled=jpg.disabled=true;
  const status=add(editor,'small',''),canvas=add(editor,'canvas');canvas.setAttribute('aria-label',tr('දහම් පෝස්ටර පෙරදසුන','Dhamma poster preview'));
  let revision=0;
