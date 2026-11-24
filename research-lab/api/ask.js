@@ -199,3 +199,13 @@ module.exports=async(req,res)=>{
  }
  return prevHandler(req,res);
 };
+
+// Bilara stores certain AN groups in a range file; extract only the requested segment ID.
+const singleEnglish=englishRoot;
+englishRoot=async function(id){
+ let d=await singleEnglish(id);if(d||id!=='an1.49')return d;
+ const u='https://raw.githubusercontent.com/suttacentral/bilara-data/published/translation/en/sujato/sutta/an/an1/an1.41-50_translation-en-sujato.json';
+ const f=await fetch(u,{signal:AbortSignal.timeout(6500)});if(!f.ok)return null;
+ const j=await f.json();const text=Object.entries(j).filter(([k])=>k.startsWith(id+':')).map(([,v])=>v).join('\n');
+ return text?{text,source:'https://suttacentral.net/an1.49/en/sujato',title:'Luminous mind'}:null;
+};
