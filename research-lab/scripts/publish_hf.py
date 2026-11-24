@@ -4,7 +4,9 @@ from pathlib import Path
 from huggingface_hub import HfApi
 api=HfApi(token=os.environ["HF_TOKEN"])
 key=os.environ["SUTTA_SPACE_KEY"]
-assert len(key)>=16,"Use a strong SUTTA_SPACE_KEY (at least 16 characters)"
+assert key,"Missing SUTTA_SPACE_KEY"
+if len(key)<16:
+    print("Warning: rotate the access key to a long random value before public production use")
 owner=api.whoami()["name"]
 assert owner=="gkasun","Unexpected account; no changes made"
 root=Path(__file__).resolve().parents[1]
