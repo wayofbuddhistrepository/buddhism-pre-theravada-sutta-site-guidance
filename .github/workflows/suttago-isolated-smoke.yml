@@ -1,0 +1,41 @@
+name: SuttaGo isolated smoke
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-isolated-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  crawler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install isolated crawler
+        run: |
+          python -m pip install crawl4ai
+          python -m playwright install --with-deps chromium
+      - name: Test canonical page
+        run: python research-lab/scripts/crawl_probe.py
+  model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Test open weight CPU fallback
+        run: |
+          python -m pip install huggingface_hub 'llama-cpp-python' --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+          python - <<'PY'
+          from huggingface_hub import hf_hub_download
+          from llama_cpp import Llama
+          path=hf_hub_download("Qwen/Qwen3-4B-GGUF","Qwen3-4B-Q4_K_M.gguf",revision="bc640142c66e1fdd12af0bd68f40445458f3869b")
+          llm=Llama(model_path=path,n_ctx=2048,n_threads=2,verbose=False)
+          result=llm("Give a concise answer in English: what does the first noble truth concern?\nAnswer:",max_tokens=64,temperature=0)
+          assert result["choices"][0]["text"].strip()
+          print(result["choices"][0]["text"])
+          PY
