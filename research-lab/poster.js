@@ -21,6 +21,24 @@ function decorative(ctx,W,H,theme){
  for(let j=0;j<4;j++){ctx.beginPath();ctx.moveTo(0,H*(.46+j*.09));for(let i=0;i<=8;i++)ctx.lineTo(W*i/8,H*(.42+j*.09+Math.sin(i*1.43+j)*.05));ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();ctx.fillStyle=['#94a895','#63877b','#406b60','#224c43'][j];ctx.fill()}
  for(let i=0;i<8;i++){let x=W*(.04+i*.135),y=H*(.87+Math.sin(i*2)*.035);ctx.save();ctx.translate(x,y);ctx.scale(W/1080,W/1080);ctx.fillStyle='#e3bca4';for(let j=0;j<5;j++){ctx.save();ctx.rotate((j-2)*.44);ctx.beginPath();ctx.ellipse(0,-19,10,28,0,0,Math.PI*2);ctx.fill();ctx.restore()}ctx.fillStyle='#e7c276';ctx.beginPath();ctx.ellipse(0,-5,15,8,0,0,Math.PI*2);ctx.fill();ctx.restore()}
 }
+
+// CPU-only procedural fallback. This is illustration, not neural inference.
+function scenic(ctx,W,H,theme,prompt,seed){
+ let hash=2166136261;for(const c of prompt+' '+seed){hash=Math.imul(hash^c.codePointAt(0),16777619)}
+ let state=hash>>>0;const rnd=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296};
+ const p=prompt.toLowerCase(),forest=/forest|woods|වනාන්තර|කැලෑ/.test(p),falls=/waterfall|දිය\s*ඇල්ල/.test(p),night=/night|moon|රාත්‍රි|සඳ/.test(p),lotuses=/lotus|නෙළුම්|පොකුණ/.test(p),lake=/lake|විල|pond|පොකුණ/.test(p);
+ const sky=ctx.createLinearGradient(0,0,0,H*.65);sky.addColorStop(0,night?'#213555':'#7198b0');sky.addColorStop(.55,night?'#7c8caa':'#e7c4ad');sky.addColorStop(1,night?'#a9b9b0':'#fff0c2');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+ const sx=W*(.26+rnd()*.17),sy=H*.19;let glow=ctx.createRadialGradient(sx,sy,0,sx,sy,W*.35);glow.addColorStop(0,'#fff9db');glow.addColorStop(.2,night?'#d9e7ff77':'#fff0b4aa');glow.addColorStop(1,'#fff0');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+ ctx.fillStyle=night?'#e9f0f8':'#fff4cd';ctx.beginPath();ctx.arc(sx,sy,W*.043,0,7);ctx.fill();
+ for(let j=0;j<5;j++){let base=H*(.34+j*.075);ctx.fillStyle=['#a5b6ba','#849f9e','#618b81','#477464','#285d50'][j];ctx.beginPath();ctx.moveTo(0,H);ctx.lineTo(0,base);for(let i=0;i<=24;i++)ctx.lineTo(i*W/24,base+Math.sin(i*.63+j)*H*.055+(rnd()-.5)*H*.035);ctx.lineTo(W,H);ctx.closePath();ctx.fill()}
+ const waterY=H*.61;const water=ctx.createLinearGradient(0,waterY,0,H);water.addColorStop(0,'#91b2a4');water.addColorStop(1,'#285d63');ctx.fillStyle=water;ctx.fillRect(0,waterY,W,H-waterY);
+ for(let i=0;i<220;i++){let y=waterY+rnd()*(H-waterY),x=rnd()*W;ctx.strokeStyle=i%5===0?'#f5ddac70':'#c9e5cd40';ctx.lineWidth=1+rnd()*2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+10+rnd()*W*.13,y);ctx.stroke()}
+ function tree(x,y,h){let thick=h*.075;ctx.fillStyle='#254a40';ctx.beginPath();ctx.moveTo(x-thick,y);ctx.quadraticCurveTo(x+thick,y-h*.6,x-thick*.2,y-h);ctx.lineTo(x+thick*.4,y-h);ctx.quadraticCurveTo(x+thick*2,y-h*.5,x+thick,y);ctx.fill();for(let i=0;i<50;i++){let ang=rnd()*6.28,rr=Math.sqrt(rnd())*h*.32,xx=x+Math.cos(ang)*rr,yy=y-h*.8+Math.sin(ang)*rr*.65;ctx.fillStyle=['#275d48','#326d51','#4d8460','#80a96c','#b3c787'][Math.floor(rnd()*5)];ctx.beginPath();ctx.ellipse(xx,yy,h*(.06+rnd()*.095),h*(.04+rnd()*.07),rnd()*3,0,7);ctx.fill()}}
+ for(let i=0;i<(forest?16:8);i++){let x=W*(rnd()<.5?rnd()*.3:.72+rnd()*.28);tree(x,H*(.52+rnd()*.14),H*(.15+rnd()*.3))}
+ if(falls){ctx.fillStyle='#516b60';ctx.fillRect(W*.25,H*.38,W*.22,H*.28);for(let i=0;i<20;i++){ctx.strokeStyle=i%3===0?'#edf5dfaa':'#b9e7d6aa';ctx.lineWidth=2+rnd()*W*.009;let x=W*(.29+rnd()*.12);ctx.beginPath();ctx.moveTo(x,H*.39);ctx.bezierCurveTo(x-W*.01,H*.49,x+W*.02,H*.55,x+W*.025,H*.65);ctx.stroke()}}
+ if(!forest||lake||lotuses||falls){for(let i=0;i<(lotuses?70:18);i++){let x=rnd()*W,y=H*(.68+rnd()*.3),r=W*(.006+rnd()*.018);ctx.fillStyle='#6a9e69';ctx.beginPath();ctx.ellipse(x,y,r*1.7,r*.5,0,0,7);ctx.fill();if(i%3===0){for(let k=-2;k<=2;k++){ctx.save();ctx.translate(x,y);ctx.rotate(k*.4);ctx.fillStyle=k%2?'#e3a3b8':'#f3c4cc';ctx.beginPath();ctx.ellipse(0,-r*.8,r*.42,r*.9,0,0,7);ctx.fill();ctx.restore()}}}}
+}
+
 function lines(ctx,text,w){
  let result=[];
  for(const p of String(text).split(/\n/)){
@@ -60,62 +78,22 @@ window.SuttaPoster={attach(ar,d,q,l){
  const size=select(tr('ප්‍රමාණය','Size'),[['portrait','1080 × 1350'],['square','1080 × 1080'],['landscape','1536 × 864'],['story','1080 × 1920']]);
  const theme=select(tr('වර්ණය','Theme'),[['green',tr('හරිත / රන්','Jade / gold')],['gold',tr('රන්වන්','Warm gold')]]);
  const font=select(tr('අකුරු','Font'),[['Noto Sans Sinhala','Noto Sans Sinhala'],['Abhaya Libre','Abhaya Libre']]);
- const bg=select(tr('පසුබිම','Background'),[['illustrated',tr('දෛශික භූදර්ශනය (AI නොවේ)','Vector landscape (not AI)')],['anime.jpg',tr('AI Anime — CPU පරීක්ෂණ රූපය','AI Anime — CPU-generated preset')],['openvino.jpg',tr('AI OpenVINO — CPU පරීක්ෂණ රූපය','AI OpenVINO — CPU-generated preset')],['upload',tr('ඔබේ රූපය','Your image')]]);
- const upload=field(tr('ඔබේ රූපයක් තෝරන්න (විකල්ප)','Upload your own background (optional)'),'input','');upload.type='file';upload.accept='image/png,image/jpeg,image/webp';let uploaded=null,uploadUrl=null;
- upload.onchange=async()=>{let f=upload.files[0];if(!f)return;if(f.size>12000000){status.textContent=tr('රූපය 12MB ට අඩු විය යුතුයි.','Image must be under 12 MB.');return}try{if(uploadUrl)URL.revokeObjectURL(uploadUrl);uploadUrl=URL.createObjectURL(f);uploaded=await load(uploadUrl);bg.value='upload';await render()}catch{status.textContent=tr('රූපය විවෘත කළ නොහැක.','Image could not be opened.')}};
-
- // Direct, opt-in community GPU generation; no server key or automatic job spam.
- const ai=add(editor,'details');add(ai,'summary',tr('AI පසුබිමක් අලුතින් නිර්මාණය කරන්න','Generate a new AI background'));
- add(ai,'small',tr('AI Horde ප්‍රජා GPU සේවාවට රූප prompt එක පමණක් යවයි. පෞද්ගලික තොරතුරු ඇතුළත් නොකරන්න. Queue සීමා ඇත.','Only the image prompt is sent to the community AI Horde service. Do not enter private information. Queue limits apply.'));
- const scene=add(ai,'select');
- const scenes=[['lotus','Peaceful lotus pond near a Buddhist forest monastery, morning mist, golden sunbeams'],['lake','Calm mountain lake, reflections, blue green water, soft dawn light'],['forest','Tranquil green forest, winding stone path, gentle stream, sunlit trees'],['waterfall','Peaceful waterfall garden, mossy rocks, lotus blossoms, warm sunset'],['custom','']];
- for(const [v,t] of scenes){let o=add(scene,'option',tr(({lotus:'නෙළුම් පොකුණ',lake:'නිසල විල',forest:'සන්සුන් වනාන්තරය',waterfall:'දිය ඇල්ල',custom:'මගේම Prompt එක'})[v],v==='custom'?'Custom prompt':v));o.value=v;}
- const prompt=add(ai,'textarea');prompt.rows=3;prompt.maxLength=350;prompt.value=scenes[0][1];scene.onchange=()=>{prompt.value=scenes.find(x=>x[0]===scene.value)[1]};
- const model=add(ai,'select');for(const m of ['Auto','Nova Anime XL','Counterfeit','Anything v3','Juggernaut XL']){let o=add(model,'option',m);o.value=m}
- const make=add(ai,'button',tr('AI රූපය සාදන්න','Generate AI image')),halt=add(ai,'button',tr('නවත්වන්න','Cancel'));make.type=halt.type='button';halt.disabled=true;
- const aiStatus=add(ai,'small','');let job=null,ctrl=null;const base='https://aihorde.net/api/v2';
- const headers={'Content-Type':'application/json','apikey':'0000000000','Client-Agent':'SuttaGo:1.0:research-lab'};
- async function call(path,opts={}){let r=await fetch(base+path,{...opts,headers,signal:opts.signal?AbortSignal.any([opts.signal,AbortSignal.timeout(15000)]):AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
- async function cancel(){const id=job;job=null;ctrl?.abort();if(id)try{await call('/generate/status/'+id,{method:'DELETE'})}catch{}}
- halt.onclick=()=>{aiStatus.textContent=tr('නවත්වන ලදී','Cancelled');cancel()};
+ const bg={value:'illustrated',addEventListener(){}};
+ let uploaded=null,uploadUrl=null,sceneSeed=0,artPrompt='peaceful lotus pond at sunrise',artOrigin='illustrated';
+ const prompt=field(tr('ඔබට අවශ්‍ය රූපය විස්තර කරන්න','Describe your background'),'textarea',artPrompt);prompt.rows=3;prompt.maxLength=350;
+ const make=add(editor,'button',tr('✦ අලුත් පසුබිමක් සාදන්න','✦ Create background'));make.type='button';
+ const aiStatus=add(editor,'small','');
  make.onclick=async()=>{
-  if(ctrl)return;const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('Prompt එකක් ලියන්න','Enter a prompt');return}
-  make.disabled=true;halt.disabled=false;ctrl=new AbortController();const signal=ctrl.signal;
+  const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('රූපය විස්තර කරන්න.','Describe the image.');return}
+  make.disabled=true;artPrompt=p;sceneSeed++;uploaded=null;bg.value='illustrated';artOrigin='illustrated';
+  if(uploadUrl){URL.revokeObjectURL(uploadUrl);uploadUrl=null}
   try{
-   aiStatus.textContent=tr('GPU සේවාවට යොමු කරමින්…','Submitting to GPU service…');
-   const available=await call('/status/models?type=image',{signal});
-   const allowed=['Nova Anime XL','Counterfeit','Anything v3','Juggernaut XL'];
-   const active=allowed.filter(m=>available.some(x=>x.name===m&&x.count>0));
-   let candidates=model.value==='Auto'?active:active.filter(x=>x===model.value);
-   if(!candidates.length)throw Error('No workers for selected model');
-   const data={prompt:p+' , beautiful detailed hand painted anime landscape, peaceful atmosphere, no people, no letters ### text, lettering, watermark, explicit content',params:{width:512,height:512,steps:20,n:1,sampler_name:'k_euler',cfg_scale:7},models:candidates,nsfw:false,censor_nsfw:true,r2:true,shared:false,slow_workers:true};
-   const r=await call('/generate/async',{method:'POST',body:JSON.stringify(data),signal});
-   if(!/^[a-f0-9-]{36}$/i.test(r.id||''))throw Error('Invalid job');
-   job=r.id;
-   const deadline=Date.now()+180000;
-   while(Date.now()<deadline&&!signal.aborted){
-    await new Promise(r=>setTimeout(r,5000));if(signal.aborted)break;
-    const c=await call('/generate/check/'+job,{signal});
-    aiStatus.textContent=tr('GPU පෝලිම: ','GPU queue: ')+(c.queue_position??'?')+' · '+tr('ඇස්තමේන්තුගත තත්පර: ','Estimated seconds: ')+(c.wait_time??'?');
-    if(c.faulted||c.is_possible===false)throw Error('No available worker');
-    if(!c.done)continue;
-    const d=await call('/generate/status/'+job,{signal});job=null;
-    const g=d.generations?.find(x=>!x.censored&&x.state!=='faulted'&&x.state!=='censored'&&typeof x.img==='string');
-    if(!g)throw Error('No usable image');
-    let img;
-    if(/^https:\/\//.test(g.img)){
-     const u=new URL(g.img);if(u.username||u.password)throw Error('Invalid image');
-     const f=await fetch(u.href,{signal,credentials:'omit',referrerPolicy:'no-referrer'});if(!f.ok)throw Error('Image unavailable');
-     const blob=await f.blob();if(!/^image\//.test(blob.type)||blob.size>12000000)throw Error('Invalid image');
-     if(uploadUrl)URL.revokeObjectURL(uploadUrl);uploadUrl=URL.createObjectURL(blob);img=await load(uploadUrl);
-    }else{if(g.img.length>16000000||!/^[A-Za-z0-9+/=]+$/.test(g.img))throw Error('Invalid image');img=await load('data:image/webp;base64,'+g.img)}
-    uploaded=img;bg.value='upload';await render();aiStatus.textContent=tr('AI පසුබිම සූදානම්: ','AI background ready: ')+g.model;return;
-   }
-   if(!signal.aborted)throw Error('Queue timeout');
-  }catch(e){if(!signal.aborted)aiStatus.textContent=tr('AI Horde සේවාව ලබාගත නොහැක. වෙනත් පසුබිමක් තෝරන්න. ','AI Horde unavailable. Choose another background. ')+String(e.message).slice(0,80)}
-  finally{await cancel();ctrl=null;make.disabled=false;halt.disabled=true}
+   // Only the server's configured CPU backend may generate a neural image.
+   const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p}),signal:AbortSignal.timeout(12000)});
+   if(r.ok){const blob=await r.blob();if(!/^image\/(?:png|jpeg|webp)$/.test(blob.type)||blob.size>12000000)throw Error('invalid image');uploadUrl=URL.createObjectURL(blob);uploaded=await load(uploadUrl);bg.value='upload';artOrigin='cpu-ai'}
+  }catch{}
+  await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):tr('ක්ෂණික භූදර්ශනය සූදානම් (AI නොවේ).','Instant illustration ready (not AI).');make.disabled=false;
  };
-
 
  const diagram=add(editor,'details');add(diagram,'summary',tr('උසස් ගැලීම් සටහන (Mermaid)','Advanced flowchart (Mermaid)'));
  add(diagram,'small',tr('මුල් සූත්‍රයට අනුව කරුණු අනුපිළිවෙළින් ලියන්න. ඊතල මඟින් සම්බන්ධතාවයක් දක්වන නිසා එය නිවැරදිද පරීක්ෂා කරන්න.','Enter source-verified steps in order. Check that the arrows express the intended relationship.'));
@@ -157,7 +135,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    if(bg.value==='upload'){if(!uploaded)throw Error('upload');img=uploaded;used='upload'}
    else if(bg.value!=='illustrated'){try{img=await load(assetBase+bg.value);used='ai-preset'}catch{status.textContent=tr('AI පසුබිම තවම නොලැබේ. දෛශික පසුබිම භාවිත වේ.','AI preset unavailable; using vector background.');}}
    if(run!==revision)return;
-   canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');decorative(ctx,W,H,theme.value);if(img)cover(ctx,img,0,0,W,H);
+   canvas.width=W;canvas.height=H;const ctx=canvas.getContext('2d');scenic(ctx,W,H,theme.value,artPrompt,sceneSeed);if(img)cover(ctx,img,0,0,W,H);
    const landscape=W>H,margin=Math.round(W*.045),panelX=landscape?Math.round(W*.47):margin,panelY=landscape?margin:Math.round(H*.32),panelW=W-panelX-margin,panelH=H-panelY-margin;
    ctx.fillStyle=theme.value==='gold'?'rgba(31,27,20,.87)':'rgba(13,37,32,.88)';rounded(ctx,panelX,panelY,panelW,panelH,28);ctx.fill();ctx.strokeStyle='#e7ca8d';ctx.lineWidth=2;ctx.stroke();
    const pad=landscape?35:42,x=panelX+pad,w=panelW-pad*2;let y=panelY+pad;
@@ -169,7 +147,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    if(body.value.trim())y=textBlock(ctx,body.value,x,y,w,bottom-y-footerH-flowH-12,landscape?30:36,23,'400',family,'#fffdf4')+12;
    if(steps.length){for(let i=0;i<steps.length;i++){ctx.fillStyle='rgba(236,212,160,.12)';rounded(ctx,x,y,w,45,9);ctx.fill();textBlock(ctx,steps[i],x+12,y+5,w-24,36,26,20,'600',family,'#fbe3ae');y+=49;if(i<steps.length-1){ctx.fillStyle='#ecd4a0';ctx.font='20px sans-serif';ctx.fillText('↓',x+w/2-7,y-3);y+=8}}}
    if(refs.value.trim())textBlock(ctx,tr('මූලාශ්‍ර: ','Sources: ')+refs.value,x,bottom-footerH+5,w,footerH-8,22,17,'400',family,'#ecd4a0');
-   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?tr('ඔබේ පසුබිම + පෙළ','Your background + text'):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
+   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?tr('CPU AI පසුබිම + පෙළ','CPU AI background + text'):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
    png.disabled=jpg.disabled=false;
   }catch(e){status.textContent=e.message==='overflow'?tr('පෙළ වැඩියි. කෙටි කරන්න හෝ දිගු ප්‍රමාණයක් තෝරන්න.','Text is too long. Shorten it or select a taller size.'):e.message==='font'?tr('සිංහල font එක load වූයේ නැත. නැවත උත්සාහ කරන්න.','Sinhala font could not load. Try again.'):e.message==='steps'?tr('ගැලීම් කරුණු 4ක් දක්වා ඇතුළත් කරන්න.','Use up to four flow steps.'):tr('රූපය සකස් කළ නොහැකි විය.','Could not render poster.')}
   finally{if(run===revision)preview.disabled=false}
