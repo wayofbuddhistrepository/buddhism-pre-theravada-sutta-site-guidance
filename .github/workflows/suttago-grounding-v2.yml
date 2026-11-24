@@ -16,3 +16,5 @@ jobs:
       - run: node research-lab/scripts/test_grounding_v2.cjs
 
 # Re-run after syntax repair and AI planner integration.
+
+# Verify normalized Sinhala intent and canonical lead ranking.
