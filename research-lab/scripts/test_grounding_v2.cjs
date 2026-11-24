@@ -11,6 +11,7 @@ async function request(q,lang='si',mode='deep'){
 }
 (async()=>{
  const cases=[
+ ['චිත්ත අභ්‍යන්තර ගැන ඉගැන්වීම්','si',['sn-2-1-7-1','mn-1-1-10','mn-1-2-10','an-1-5-9']],
  ['සිතේ ගැඹුර ගැන කියන්න','si',['sn-2-1-7-1','mn-1-1-10','mn-1-2-10','an-1-5-9']],
  ['චිත්තභාවනා සහ චිත්තානුපස්සනා අතර වෙනස','si',['mn-1-1-10']],
  ['පටිච්චසමුප්පාදය ගැන විස්තර කරන්න','si',['sn-2-1-1-1','sn-2-1-2-10']],
@@ -22,6 +23,7 @@ async function request(q,lang='si',mode='deep'){
  for(const [q,l,expected] of cases){
   const out=await request(q,l);
   if(expected.length)assert(out.sources.some(s=>expected.some(id=>s.id===id||s.id==='bjt:'+id||s.id==='dto:'+id)),q+' expected at least one known source');
+  if(q==='චිත්ත අභ්‍යන්තර ගැන ඉගැන්වීම්'){assert(!out.sources.some(s=>s.id==='bjt:an-10-1-5-5'),'Irrelevant royal palace source');}
   if(q==='xyznonexistenttoken')assert.equal(out.sources.length,0);
  }
  console.log('Retrieval regression passed');
