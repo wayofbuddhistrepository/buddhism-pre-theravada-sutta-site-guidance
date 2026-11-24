@@ -960,11 +960,18 @@ async function researchGuide(q,l,ctx){
 }
 function mergeGuide(plan,guide){
  if(!guide)return plan;
- // Preserve explicit comparison facets, and supplement them with suggested terms.
- const groups=plan.intent==='compare'&&plan.groups.length>=2?plan.groups.map(g=>{
-  const match=guide.groups.find(x=>x.some(t=>g.some(k=>k.includes(t)||t.includes(k))));
-  return [...new Set([...g,...(match||[])])].slice(0,6)
- }):guide.groups;
+ // Qualifiers alone are not evidence requirements. Preserve explicit
+ // user concepts; AI suggestions expand search rather than replace intent.
+ const generic=new Set(['අජ්ඣත්ත','අභ්‍යන්තර','අභ්‍යන්තරය','ඉගැන්වීම්','ඉගැන්වීම','inner','internal','within','teachings','teaching','depth','nature','දහම'].map(norm));
+ const cleaned=guide.groups.map(g=>g.filter(t=>!generic.has(norm(t)))).filter(g=>g.length);
+ const overlap=(a,b)=>a.some(t=>b.some(k=>t===k||(t.length>=5&&k.length>=5&&(t.includes(k)||k.includes(t)))));
+ const expanded=plan.groups.map(g=>{
+  const match=cleaned.find(x=>overlap(g,x));
+  return [...new Set([...g,...(match||[]).filter(x=>!['චේතනා','cetanā','cetana','intention'].includes(norm(x))||g.some(t=>['චේතනා','cetanā','cetana','intention'].includes(norm(t))))])].slice(0,6);
+ });
+ // For unfamiliar phrasing with no matching deterministic concept,
+ // an AI interpretation can be useful; do not add generic standalone facets.
+ const groups=expanded.length&&cleaned.some(x=>plan.groups.some(g=>overlap(g,x)))?expanded:(plan.intent==='compare'?expanded:(cleaned.length?cleaned:expanded));
  return {...plan,groups,queries:[...new Set([...groups.map(g=>g[0]),...groups.flatMap(g=>g.slice(1,2))])].slice(0,6),guideIds:guide.ids,guideModel:guide.provider};
 }
 async function guideCandidates(plan,l){
