@@ -18,3 +18,5 @@ jobs:
 # Re-run after syntax repair and AI planner integration.
 
 # Verify normalized Sinhala intent and canonical lead ranking.
+
+# Test strict paired canonical sources and fail-closed publication.
