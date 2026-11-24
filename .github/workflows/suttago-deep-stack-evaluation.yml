@@ -1,0 +1,141 @@
+name: SuttaGo deep stack evaluation
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-deep-stack-evaluation.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reasoning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: qwen-27b
+            repo: bartowski/Qwen3.8-27B-GGUF
+            revision: 87410e7b9a5c21e6ca70c0c9cc5237de909fe621
+            file: Qwen3.8-27B-Q3_K_M.gguf
+          - name: gpt-oss-20b
+            repo: ggml-org/gpt-oss-20b-GGUF
+            revision: 41e8a94d15d62070b36cf4553a0250717ecf46b8
+            file: gpt-oss-20b-MXFP4.gguf
+          - name: gemma-26b-sinhala
+            repo: bartowski/google_gemma-4-26B-A4B-it-GGUF
+            revision: 10f3b41bcf8d3047f4e136e7197ffc2dd1654c9d
+            file: google_gemma-4-26B-A4B-it-Q3_K_M.gguf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install pinned CPU runtime
+        run: |
+          free -h
+          df -h /tmp
+          mkdir -p /tmp/sutta-llama
+          curl -fsSL --retry 2 https://github.com/ggml-org/llama.cpp/releases/download/b12674/llama-b12674-bin-ubuntu-x64.tar.gz -o /tmp/llama.tar.gz
+          echo 'e777a38bb3e32e41046f4b998607e9d53a1e56dcbe385713f245e05fcdbac621  /tmp/llama.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/llama.tar.gz -C /tmp/sutta-llama
+          python -m pip install huggingface_hub
+      - name: Compare two Sinhala research questions
+        env:
+          MODEL_REPO: ${{ matrix.repo }}
+          MODEL_REV: ${{ matrix.revision }}
+          MODEL_FILE: ${{ matrix.file }}
+        run: python research-lab/scripts/compare_reasoners.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: reasoner-${{ matrix.name }}
+          path: benchmark-result.json
+          retention-days: 7
+  live-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python research-lab/scripts/live_regression.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: live-regression
+          path: live-regression.json
+          retention-days: 7
+  searxng:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Start isolated metasearch
+        run: |
+          mkdir -p /tmp/searx
+          cat > /tmp/searx/settings.yml <<'EOF'
+          use_default_settings: true
+          server:
+            secret_key: "disposable-ci-test-not-production"
+            limiter: false
+          search:
+            formats: [html, json]
+          EOF
+          docker pull searxng/searxng:latest
+          image=$(docker image inspect --format '{{index .RepoDigests 0}}' searxng/searxng:latest)
+          echo "Image: $image"
+          docker run -d --name sutta-searx --memory=1g -p 127.0.0.1:18888:8080 -v /tmp/searx:/etc/searxng:rw "$image"
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:18888/ >/dev/null; then break; fi; sleep 2; done
+          curl -fsS --max-time 45 -G http://127.0.0.1:18888/search --data-urlencode 'q=site:suttacentral.net dependent origination' --data-urlencode 'format=json' -o /tmp/search.json
+          python - <<'PY'
+          import json,urllib.parse
+          d=json.load(open('/tmp/search.json')); print('SearXNG JSON endpoint works; total results',len(d.get('results',[])))
+          matches=[r['url'] for r in d.get('results',[]) if urllib.parse.urlparse(r.get('url','')).hostname in ['suttacentral.net','www.suttacentral.net']]
+          print('Trusted results:',matches[:5])
+          assert matches,'Upstream search returned no trusted results'
+          PY
+      - if: always()
+        run: docker logs --tail 30 sutta-searx || true; docker rm -f sutta-searx || true
+  firecrawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Build official isolated self-host stack
+        run: |
+          git init /tmp/firecrawl
+          git -C /tmp/firecrawl remote add origin https://github.com/firecrawl/firecrawl.git
+          git -C /tmp/firecrawl fetch --depth 1 origin 4924105f57c105fa678706e05fa234d66b5b061e
+          git -C /tmp/firecrawl checkout --detach FETCH_HEAD
+          cd /tmp/firecrawl
+          cat > .env <<'EOF'
+          PORT=3002
+          USE_DB_AUTHENTICATION=false
+          NUM_WORKERS_PER_QUEUE=1
+          CRAWL_CONCURRENT_REQUESTS=2
+          MAX_CONCURRENT_JOBS=2
+          BROWSER_POOL_SIZE=1
+          EOF
+          # Only local disposable runner. No external provider credentials.
+          sed -i 's/"${PORT:-3002}:${INTERNAL_PORT:-3002}"/"127.0.0.1:${PORT:-3002}:${INTERNAL_PORT:-3002}"/' docker-compose.yaml
+          docker compose build api playwright-service nuq-postgres
+          docker compose up -d api
+      - name: Verify actual scrape
+        run: |
+          python - <<'PY'
+          import urllib.robotparser
+          rp=urllib.robotparser.RobotFileParser('https://www.dhammatalks.org/robots.txt');rp.read()
+          assert rp.can_fetch('*','https://www.dhammatalks.org/suttas/SN/SN12_61.html')
+          PY
+          for i in $(seq 1 45); do
+            if curl -fsS --max-time 3 http://127.0.0.1:3002/ >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS --max-time 90 http://127.0.0.1:3002/v2/scrape -H 'Content-Type: application/json' -d '{"url":"https://www.dhammatalks.org/suttas/SN/SN12_61.html","formats":["markdown"],"onlyMainContent":true}' -o /tmp/scrape.json
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/scrape.json')); t=d.get('data',{}).get('markdown','')
+          assert d.get('success') and 'monkey' in t.lower()
+          print('Firecrawl original source extraction passed:',len(t),'characters')
+          PY
+      - if: always()
+        run: |
+          cd /tmp/firecrawl
+          docker compose logs --tail 20 api || true
+          docker compose down -v || true
