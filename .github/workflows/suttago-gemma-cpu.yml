@@ -1,0 +1,43 @@
+name: SuttaGo Gemma CPU fallback evaluation
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-gemma-cpu.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gemma-4-26b
+            repo: bartowski/google_gemma-4-26B-A4B-it-GGUF
+            rev: 10f3b41bcf8d3047f4e136e7197ffc2dd1654c9d
+            file: google_gemma-4-26B-A4B-it-Q3_K_M.gguf
+          - name: gemma-4-e4b
+            repo: bartowski/google_gemma-4-E4B-it-GGUF
+            rev: 029e94146666900b08caf49a3b47b413dfa8ec66
+            file: google_gemma-4-E4B-it-Q4_K_M.gguf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install pinned CPU runtime
+        run: |
+          free -h
+          df -h /tmp
+          mkdir -p /tmp/sutta-llama
+          curl -fsSL --retry 2 https://github.com/ggml-org/llama.cpp/releases/download/b12674/llama-b12674-bin-ubuntu-x64.tar.gz -o /tmp/llama.tar.gz
+          echo 'e777a38bb3e32e41046f4b998607e9d53a1e56dcbe385713f245e05fcdbac621  /tmp/llama.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/llama.tar.gz -C /tmp/sutta-llama
+          python -m pip install huggingface_hub
+      - name: Download public weights and run real CPU inference
+        env:
+          MODEL_REPO: ${{ matrix.repo }}
+          MODEL_REV: ${{ matrix.rev }}
+          MODEL_FILE: ${{ matrix.file }}
+        run: python research-lab/scripts/test_gemma_cpu.py
