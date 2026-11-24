@@ -543,7 +543,7 @@ function modelPrompt(q,l,e){
 }
 const gatewayCooldown=new Map();
 async function freeAnswer(id,p,l,n,deep,ctx){
- const token=process.env.VERCEL_OIDC_TOKEN||process.env.SUTTA_FREE_GATEWAY_KEY;
+ const token=ctx.oidc||process.env.VERCEL_OIDC_TOKEN||process.env.SUTTA_FREE_GATEWAY_KEY;
  if(!token){ctx.attempts.push({model:id,status:'not_configured'});return null}
  if((gatewayCooldown.get(id)||0)>Date.now()){ctx.attempts.push({model:id,status:'cooldown'});return null}
  try{
@@ -613,7 +613,11 @@ module.exports=async(req,res)=>{
  const q=req.body.q,l=req.body.lang==='en'?'en':req.body.lang==='pli'?'pli':'si',plan=taskPlan(q,l,req.body.mode);
  // Explicit sutta lookup and Pāli direct lookup retain their established path.
  if(!plan.queries.length||uidRE.test(norm(q).replace(/\s/g,'')))return previousTeamHandler(req,res);
- const ctx={plan,collect:true,attempts:[],model:null,deadline:Date.now()+205000};
+ const header=req.headers?.['x-vercel-oidc-token'];
+ let oidc=null;
+ // Vercel injects a signed request token. Screen the expected project claim; the gateway verifies its signature.
+ if(typeof header==='string'&&header.length<12000){try{const claims=JSON.parse(Buffer.from(header.split('.')[1],'base64url').toString('utf8'));if(/^owner:[^:]+:project:suttago-research-lab:environment:production$/.test(claims.sub||'')&&claims.exp>Date.now()/1000)oidc=header}catch{}}
+ const ctx={plan,collect:true,attempts:[],model:null,deadline:Date.now()+205000,oidc};
  return researchContext.run(ctx,async()=>{
   res.setHeader('Cache-Control','no-store');res.setHeader('X-Robots-Tag','noindex');
   const lanes=[{name:'corpus',run:async()=>{let c=capture();await priorHybrid(req,c.out);return c.get()}}];
