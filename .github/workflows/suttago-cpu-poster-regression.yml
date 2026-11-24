@@ -1,0 +1,22 @@
+name: SuttaGo CPU-only poster regression
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-cpu-poster-regression.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: |
+          node --check research-lab/poster.js
+          node --check research-lab/api/poster-background.js
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+      - run: |
+          python3 -m http.server 8765 --directory research-lab >/tmp/poster-server.log 2>&1 &
+          node research-lab/scripts/cpu_poster_regression.cjs
