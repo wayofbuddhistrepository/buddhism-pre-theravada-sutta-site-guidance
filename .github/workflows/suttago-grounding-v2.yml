@@ -14,3 +14,5 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: node --check research-lab/api/ask.js
       - run: node research-lab/scripts/test_grounding_v2.cjs
+
+# Re-run after syntax repair and AI planner integration.
