@@ -1,0 +1,33 @@
+name: SuttaGo actual CPU image API test
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-cpu-image-api.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --only-binary=tokenizers -r research-lab/cpu-image-service/requirements.txt
+      - run: |
+          set -eu
+          export SUTTA_CPU_IMAGE_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          export CPU_THREADS=4
+          python -m uvicorn app:app --app-dir research-lab/cpu-image-service --host 127.0.0.1 --port 7860 >/tmp/cpu-api.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; tail -30 /tmp/cpu-api.log' EXIT
+          python research-lab/cpu-image-service/smoke.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: real-cpu-api-images
+          path: cpu-*.jpg
+          retention-days: 7
