@@ -63,6 +63,59 @@ window.SuttaPoster={attach(ar,d,q,l){
  const bg=select(tr('පසුබිම','Background'),[['illustrated',tr('දෛශික භූදර්ශනය (AI නොවේ)','Vector landscape (not AI)')],['anime.jpg',tr('AI Anime — CPU පරීක්ෂණ රූපය','AI Anime — CPU-generated preset')],['openvino.jpg',tr('AI OpenVINO — CPU පරීක්ෂණ රූපය','AI OpenVINO — CPU-generated preset')],['upload',tr('ඔබේ රූපය','Your image')]]);
  const upload=field(tr('ඔබේ රූපයක් තෝරන්න (විකල්ප)','Upload your own background (optional)'),'input','');upload.type='file';upload.accept='image/png,image/jpeg,image/webp';let uploaded=null,uploadUrl=null;
  upload.onchange=async()=>{let f=upload.files[0];if(!f)return;if(f.size>12000000){status.textContent=tr('රූපය 12MB ට අඩු විය යුතුයි.','Image must be under 12 MB.');return}try{if(uploadUrl)URL.revokeObjectURL(uploadUrl);uploadUrl=URL.createObjectURL(f);uploaded=await load(uploadUrl);bg.value='upload';await render()}catch{status.textContent=tr('රූපය විවෘත කළ නොහැක.','Image could not be opened.')}};
+
+ // Direct, opt-in community GPU generation; no server key or automatic job spam.
+ const ai=add(editor,'details');add(ai,'summary',tr('AI පසුබිමක් අලුතින් නිර්මාණය කරන්න','Generate a new AI background'));
+ add(ai,'small',tr('AI Horde ප්‍රජා GPU සේවාවට රූප prompt එක පමණක් යවයි. පෞද්ගලික තොරතුරු ඇතුළත් නොකරන්න. Queue සීමා ඇත.','Only the image prompt is sent to the community AI Horde service. Do not enter private information. Queue limits apply.'));
+ const scene=add(ai,'select');
+ const scenes=[['lotus','Peaceful lotus pond near a Buddhist forest monastery, morning mist, golden sunbeams'],['lake','Calm mountain lake, reflections, blue green water, soft dawn light'],['forest','Tranquil green forest, winding stone path, gentle stream, sunlit trees'],['waterfall','Peaceful waterfall garden, mossy rocks, lotus blossoms, warm sunset'],['custom','']];
+ for(const [v,t] of scenes){let o=add(scene,'option',tr(({lotus:'නෙළුම් පොකුණ',lake:'නිසල විල',forest:'සන්සුන් වනාන්තරය',waterfall:'දිය ඇල්ල',custom:'මගේම Prompt එක'})[v],v==='custom'?'Custom prompt':v));o.value=v;}
+ const prompt=add(ai,'textarea');prompt.rows=3;prompt.maxLength=350;prompt.value=scenes[0][1];scene.onchange=()=>{prompt.value=scenes.find(x=>x[0]===scene.value)[1]};
+ const model=add(ai,'select');for(const m of ['Auto','Nova Anime XL','Counterfeit','Anything v3','Juggernaut XL']){let o=add(model,'option',m);o.value=m}
+ const make=add(ai,'button',tr('AI රූපය සාදන්න','Generate AI image')),halt=add(ai,'button',tr('නවත්වන්න','Cancel'));make.type=halt.type='button';halt.disabled=true;
+ const aiStatus=add(ai,'small','');let job=null,ctrl=null;const base='https://aihorde.net/api/v2';
+ const headers={'Content-Type':'application/json','apikey':'0000000000','Client-Agent':'SuttaGo:1.0:research-lab'};
+ async function call(path,opts={}){let r=await fetch(base+path,{...opts,headers,signal:opts.signal||AbortSignal.timeout(15000)});if(!r.ok)throw Error('HTTP '+r.status);return r.json()}
+ async function cancel(){const id=job;job=null;ctrl?.abort();if(id)try{await call('/generate/status/'+id,{method:'DELETE'})}catch{}}
+ halt.onclick=()=>{aiStatus.textContent=tr('නවත්වන ලදී','Cancelled');cancel()};
+ make.onclick=async()=>{
+  if(ctrl)return;const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('Prompt එකක් ලියන්න','Enter a prompt');return}
+  make.disabled=true;halt.disabled=false;ctrl=new AbortController();const signal=ctrl.signal;
+  try{
+   aiStatus.textContent=tr('GPU සේවාවට යොමු කරමින්…','Submitting to GPU service…');
+   const available=await call('/status/models?type=image',{signal});
+   const allowed=['Nova Anime XL','Counterfeit','Anything v3','Juggernaut XL'];
+   const active=allowed.filter(m=>available.some(x=>x.name===m&&x.count>0));
+   let candidates=model.value==='Auto'?active:active.filter(x=>x===model.value);
+   if(!candidates.length)throw Error('No workers for selected model');
+   const data={prompt:p+' , beautiful detailed hand painted anime landscape, peaceful atmosphere, no people, no letters ### text, lettering, watermark, explicit content',params:{width:512,height:512,steps:20,n:1,sampler_name:'k_euler',cfg_scale:7},models:candidates,nsfw:false,censor_nsfw:true,r2:true,shared:false,slow_workers:true};
+   const r=await call('/generate/async',{method:'POST',body:JSON.stringify(data),signal});
+   if(!/^[a-f0-9-]{36}$/i.test(r.id||''))throw Error('Invalid job');
+   job=r.id;
+   const deadline=Date.now()+180000;
+   while(Date.now()<deadline&&!signal.aborted){
+    await new Promise(r=>setTimeout(r,5000));if(signal.aborted)break;
+    const c=await call('/generate/check/'+job,{signal});
+    aiStatus.textContent=tr('GPU පෝලිම: ','GPU queue: ')+(c.queue_position??'?')+' · '+tr('ඇස්තමේන්තුගත තත්පර: ','Estimated seconds: ')+(c.wait_time??'?');
+    if(c.faulted||c.is_possible===false)throw Error('No available worker');
+    if(!c.done)continue;
+    const d=await call('/generate/status/'+job,{signal});job=null;
+    const g=d.generations?.find(x=>!x.censored&&x.state!=='faulted'&&x.state!=='censored'&&typeof x.img==='string');
+    if(!g)throw Error('No usable image');
+    let img;
+    if(/^https:\/\//.test(g.img)){
+     const u=new URL(g.img);if(u.username||u.password)throw Error('Invalid image');
+     const f=await fetch(u.href,{signal,credentials:'omit',referrerPolicy:'no-referrer'});if(!f.ok)throw Error('Image unavailable');
+     const blob=await f.blob();if(!/^image\//.test(blob.type)||blob.size>12000000)throw Error('Invalid image');
+     if(uploadUrl)URL.revokeObjectURL(uploadUrl);uploadUrl=URL.createObjectURL(blob);img=await load(uploadUrl);
+    }else{if(g.img.length>16000000||!/^[A-Za-z0-9+/=]+$/.test(g.img))throw Error('Invalid image');img=await load('data:image/webp;base64,'+g.img)}
+    uploaded=img;bg.value='upload';await render();aiStatus.textContent=tr('AI පසුබිම සූදානම්: ','AI background ready: ')+g.model;return;
+   }
+   if(!signal.aborted)throw Error('Queue timeout');
+  }catch(e){if(!signal.aborted)aiStatus.textContent=tr('AI Horde සේවාව ලබාගත නොහැක. වෙනත් පසුබිමක් තෝරන්න. ','AI Horde unavailable. Choose another background. ')+String(e.message).slice(0,80)}
+  finally{await cancel();ctrl=null;make.disabled=false;halt.disabled=true}
+ };
+
  const actions=add(editor,'div');actions.className='poster-actions';const preview=add(actions,'button',tr('රූපය සාදන්න','Render poster')),png=add(actions,'button','PNG'),jpg=add(actions,'button','JPG');for(let x of [preview,png,jpg])x.type='button';png.disabled=jpg.disabled=true;
  const status=add(editor,'small',''),canvas=add(editor,'canvas');canvas.setAttribute('aria-label',tr('දහම් පෝස්ටර පෙරදසුන','Dhamma poster preview'));
  let revision=0;
