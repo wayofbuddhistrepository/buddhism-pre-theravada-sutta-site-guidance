@@ -1,0 +1,23 @@
+name: SuttaGo constrained neural CPU backend feasibility
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-native-cpu.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python -m pip install pillow
+      - run: bash research-lab/scripts/native_cpu_feasibility.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: constrained-cpu-results
+          path: native-test/
+          retention-days: 7
