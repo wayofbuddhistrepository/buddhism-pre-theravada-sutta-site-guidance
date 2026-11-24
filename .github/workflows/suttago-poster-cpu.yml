@@ -1,0 +1,65 @@
+name: SuttaGo CPU anime background tests
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-poster-cpu.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  generate:
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [anime, openvino]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: |
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install 'diffusers<1' 'transformers<5' accelerate pillow huggingface_hub
+          if [ "${{ matrix.model }}" = openvino ]; then python -m pip install 'optimum-intel[openvino,diffusers]'; fi
+      - run: python research-lab/scripts/generate_poster_background.py ${{ matrix.model }}
+        env:
+          OMP_NUM_THREADS: '4'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poster-${{ matrix.model }}
+          path: poster-output/
+          retention-days: 7
+  publish:
+    needs: generate
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: poster-*
+          merge-multiple: true
+          path: /tmp/suttago-poster-output
+      - run: |
+          set -eu
+          test -d /tmp/suttago-poster-output
+          ls /tmp/suttago-poster-output/*.jpg >/dev/null
+          if git ls-remote --exit-code --heads origin suttago-poster-assets >/dev/null; then
+            git fetch origin suttago-poster-assets
+            git checkout -B suttago-poster-assets FETCH_HEAD
+          else
+            git checkout --orphan suttago-poster-assets
+            git rm -rf .
+          fi
+          for f in anime.jpg anime.json openvino.jpg openvino.json; do
+            if test -f "/tmp/suttago-poster-output/$f"; then cp "/tmp/suttago-poster-output/$f" .; git add "$f"; fi
+          done
+          git config user.name 'SuttaGo CI'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git diff --cached --quiet || git commit -m 'Publish verified CPU-generated background presets'
+          git push origin HEAD:refs/heads/suttago-poster-assets
