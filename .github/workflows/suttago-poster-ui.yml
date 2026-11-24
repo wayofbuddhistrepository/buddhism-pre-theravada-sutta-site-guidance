@@ -14,13 +14,16 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
       - run: |
           node --check research-lab/poster.js
-          npm install --no-save playwright mermaid@11.12.2
+          npm install --no-save playwright
           npx playwright install --with-deps chromium
       - run: |
           python3 -m http.server 8765 --directory research-lab >/tmp/poster-server.log 2>&1 &
           node research-lab/scripts/poster_browser_test.cjs
-          node research-lab/scripts/mermaid_smoke.cjs
+          node research-lab/scripts/auto_diagram_test.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: poster-browser-demo
-          path: /tmp/poster-demo.png
+          path: |
+            /tmp/poster-demo.png
+            /tmp/auto-dhamma-diagram.svg
+            /tmp/auto-dhamma-diagram.png
