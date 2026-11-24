@@ -519,7 +519,7 @@ const freeRoutes=['nvidia/nemotron-3.5-lightning-free','reflection/beam-free'];
 const localRoutes=[
  ['gemma-4-26b','SUTTA_GEMMA26_SPACE_URL'],['qwen3.8-27b','SUTTA_QWEN27_SPACE_URL'],
  ['gemma-4-12b','SUTTA_GEMMA12_SPACE_URL'],['gemma-4-e4b','SUTTA_GEMMA4_SPACE_URL'],
- ['deepseek-v4-pro','SUTTA_DEEPSEEK_SPACE_URL'],['nemotron-super','SUTTA_NEMOTRON_SPACE_URL'],
+ ['nemotron-super','SUTTA_NEMOTRON_SPACE_URL'],
  ['legacy-hf','SUTTA_HF_SPACE_URL']
 ];
 let catalogCache=null,catalogAt=0;
@@ -543,12 +543,26 @@ function modelPrompt(q,l,e){
 }
 const gatewayCooldown=new Map();
 async function freeAnswer(id,p,l,n,deep,ctx){
- const token=ctx.oidc||process.env.VERCEL_OIDC_TOKEN||process.env.SUTTA_FREE_GATEWAY_KEY;
+ const token=process.env.SUTTA_FREE_GATEWAY_KEY||process.env.AI_GATEWAY_API_KEY||ctx.oidc||process.env.VERCEL_OIDC_TOKEN;
  if(!token){ctx.attempts.push({model:id,status:'not_configured'});return null}
  if((gatewayCooldown.get(id)||0)>Date.now()){ctx.attempts.push({model:id,status:'cooldown'});return null}
  try{
   const r=await fetch('https://ai-gateway.vercel.sh/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},signal:AbortSignal.timeout(Math.min(20000,Math.max(1000,ctx.deadline-Date.now()))),body:JSON.stringify({model:id,max_tokens:deep?3200:1600,temperature:0.15,messages:[{role:'system',content:p.system},{role:'user',content:p.user}]})});
-  if(!r.ok){ctx.attempts.push({model:id,status:'http_'+r.status});if([401,402,403,429].includes(r.status))gatewayCooldown.set(id,Date.now()+60000);return null}
+  if(!r.ok){
+   let reason='unspecified';
+   try{
+    let err=await r.json(), e=err.error||err, code=String(e.code||e.type||'').toLowerCase(), msg=String(e.message||'').toLowerCase();
+    if(/customer_verification_required|payment method|credit card|customer verification/.test(code+' '+msg))reason='customer_verification_required';
+    else if(/restricted.models|free.tier|not available.*free/.test(code+' '+msg))reason='restricted_free_tier';
+    else if(/access_denied|access denied/.test(code+' '+msg))reason='access_denied';
+    else if(/insufficient.funds|insufficient credits/.test(code+' '+msg))reason='insufficient_funds';
+    else if(/quota|rate.limit/.test(code+' '+msg))reason='quota_or_rate_limit';
+    else if(/unauthorized|invalid.*token|authentication/.test(code+' '+msg))reason='authentication';
+   }catch{}
+   ctx.attempts.push({model:id,status:'http_'+r.status,reason});
+   if([401,402,403,429].includes(r.status))gatewayCooldown.set(id,Date.now()+(r.status===403?900000:60000));
+   return null
+  }
   let j=await r.json(),c=j.choices?.[0];
   let ans=c?.finish_reason==='length'?null:validGroundedAnswer(c?.message?.content,l,n);
   if(j.model&&j.model!==id)ans=null;
