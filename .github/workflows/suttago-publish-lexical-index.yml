@@ -1,0 +1,32 @@
+name: SuttaGo offline lexical index
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-publish-lexical-index.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  index:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Download completed corpus artifact with scoped runner token
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 45361268854 -n isolated-sutta-corpus -D /tmp/corpus
+          python -m pip install regex
+          python research-lab/scripts/build_lexical_index.py /tmp/corpus/sutta-corpus.sqlite /tmp/sutta-index
+      - name: Publish index only to isolated data branch
+        run: |
+          git config user.name 'SuttaGo corpus build'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git switch --orphan suttago-corpus-index
+          mkdir -p index
+          cp -a /tmp/sutta-index/. index/
+          git add index
+          git commit -m 'Publish source-attributed offline lexical index'
+          git push origin HEAD:refs/heads/suttago-corpus-index
