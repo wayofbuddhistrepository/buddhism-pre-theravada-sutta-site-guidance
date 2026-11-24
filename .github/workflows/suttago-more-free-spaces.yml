@@ -1,0 +1,22 @@
+name: SuttaGo CPU grounding and Gemma 31B
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-more-free-spaces.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: suttago-hf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python -m pip install huggingface_hub==2.4.0
+      - run: python research-lab/scripts/publish_grounding_and_gemma31.py
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          SUTTA_SPACE_KEY: ${{ secrets.SUTTA_SPACE_KEY }}
