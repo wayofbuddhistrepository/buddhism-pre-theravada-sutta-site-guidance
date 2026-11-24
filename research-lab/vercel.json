@@ -1,1 +1,1 @@
-{"headers":[{"source":"/(.*)","headers":[{"key":"X-Robots-Tag","value":"noindex, nofollow"}]}],"functions":{"api/ask.js":{"maxDuration":240},"api/poster-background.js":{"maxDuration":15}}}
+{"headers":[{"source":"/(.*)","headers":[{"key":"X-Robots-Tag","value":"noindex, nofollow"}]}],"functions":{"api/ask.js":{"maxDuration":240},"api/poster-background.js":{"maxDuration":90}}}
