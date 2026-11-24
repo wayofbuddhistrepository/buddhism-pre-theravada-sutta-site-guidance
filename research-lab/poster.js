@@ -80,7 +80,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  btn.onclick=()=>{
  if(editor){editor.hidden=!editor.hidden;return}
  editor=add(ar,'section');editor.className='poster-editor';add(editor,'h3',tr('දහම් රූප නිර්මාණය','Dhamma poster studio'));
- add(editor,'small',tr('පෙළ සංස්කරණය කර මුල් සූත්‍ර සමඟ සසඳන්න. රූපය මේ උපාංගයේ නිර්මාණය වේ.','Edit and verify the text against the sources. The poster is composed on this device.'));
+ const guidance=add(editor,'small',tr('මෙහි දහම් රූප සහ ධර්ම සටහන් නිදසුන් පමණි. මුල් ත්‍රිපිටක පාඨ සමඟ සසඳා, නිවැරදි ධර්ම කරුණු හා මූලාශ්‍ර එක් කර සංස්කරණය කිරීමෙන් පසුව පමණක් භාවිත කරන්න.','Dhamma posters and diagrams are examples only. Compare them with the original Tipiṭaka passages, edit the content, and add accurate Dhamma details and references before use.'));guidance.className='poster-guidance';
  function field(name,tag,value){add(editor,'label',name);let x=add(editor,tag);x.value=value;return x}
  const title=field(tr('මාතෘකාව','Title'),'input',cropWords(tidy(q),90));title.maxLength=100;
  const body=field(d.grounding?.generated===true?tr('දහම් සාරය (සංස්කරණය කළ හැක)','Editable Dhamma excerpt'):tr('මුල් මූලාශ්‍ර උපුටාගැනීම් (AI විග්‍රහයක් නොවේ)','Canonical excerpts (not AI interpretation)'),'textarea',extract(d));body.rows=5;body.maxLength=900;if(!body.value)add(editor,'small',tr('කෙටි සම්පූර්ණ පාඨයක් ස්වයංක්‍රීයව තෝරාගත නොහැකි විය. පහළ මුල් මූලාශ්‍රයෙන් සුදුසු පාඨයක් තෝරන්න.','No short complete passage was available automatically. Select a passage from the original sources below.'));
@@ -123,7 +123,7 @@ window.SuttaPoster={attach(ar,d,q,l){
 
  make.onclick=async()=>{
   const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('රූපය විස්තර කරන්න.','Describe the image.');return}
-  make.disabled=true;aiStatus.textContent=tr('CPU මඟින් අලුත් AI රූපය නිර්මාණය කරමින්…','Creating a new CPU AI background…');artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
+  make.disabled=true;aiStatus.textContent=tr('අලුත් AI රූපය නිර්මාණය කරමින්…','Creating a new AI background…');artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
   if(uploadUrl){URL.revokeObjectURL(uploadUrl);uploadUrl=null}
   try{
    // Only the server's configured CPU backend may generate a neural image.
@@ -160,21 +160,43 @@ window.SuttaPoster={attach(ar,d,q,l){
   // Citation-bearing statements first, while preserving the original order within each group.
   return [...all.filter(v=>/\[S\d+\]/.test(v)),...all.filter(v=>!/\[S\d+\]/.test(v))].slice(0,5);
  }
+ const editTitleLabel=add(diagram,'label',tr('සටහනේ මාතෘකාව (සංස්කරණය කළ හැක)','Diagram title (editable)'));
+ const editTitle=add(diagram,'input');editTitle.type='text';editTitle.maxLength=140;editTitle.value=cropWords(tidy(q),140);
+ editTitle.setAttribute('aria-label',editTitleLabel.textContent);
+ const editPointsLabel=add(diagram,'label',tr('ධර්ම කරුණු — එක් පේළියකට එක් කරුණක් (2–5)','Dhamma points — one per line (2–5)'));
+ const editPoints=add(diagram,'textarea');editPoints.rows=7;editPoints.maxLength=1304;editPoints.value=points().join('\n');
+ editPoints.setAttribute('aria-label',editPointsLabel.textContent);
+ const editRefsLabel=add(diagram,'label',tr('මූලාශ්‍ර (සංස්කරණය කළ හැක)','Diagram sources (editable)'));
+ const editRefs=add(diagram,'textarea');editRefs.rows=2;editRefs.maxLength=300;editRefs.value=(d.sources||[]).slice(0,5).map((s,i)=>'['+(s.citation||'S'+(i+1))+'] '+tidy(s.title||s.id||'')).join(' · ');
+ editRefs.setAttribute('aria-label',editRefsLabel.textContent);
+ // Place editable fields above the preview and export controls.
+ for(const el of [editTitleLabel,editTitle,editPointsLabel,editPoints,editRefsLabel,editRefs])diagram.insertBefore(el,diagramGo);
+ diagramGo.textContent=tr('සටහන යාවත්කාලීන කරන්න','Update diagram');
+ let diagramRevision=0;
+ for(const field of [editTitle,editPoints,editRefs])field.addEventListener('input',()=>{
+   diagramRevision++;diagramReady=false;svgSave.disabled=diagramPng.disabled=true;svgText='';diagramCanvas=null;
+   diagramStatus.textContent=tr('වෙනස්කම් ඇත. සටහන යාවත්කාලීන කරන්න.','Changes made. Update the diagram.');
+ });
  async function makeDiagram(){
   diagramGo.disabled=true;svgSave.disabled=diagramPng.disabled=true;diagramView.replaceChildren();svgText='';diagramReady=false;
   try{
-   const items=points();
-   if(items.length<2){diagramStatus.textContent=tr('සටහනකට ප්‍රමාණවත් සම්පූර්ණ කරුණු දෙකක් පිළිතුරේ නොමැත.','The answer does not contain two suitable complete statements for a diagram.');return}
+   const run=++diagramRevision;
+   const items=editPoints.value.split(/\n+/).map(t=>t.trim()).filter(Boolean);
+   if(items.length<2||items.length>5||items.some(t=>t.length>260)){diagramStatus.textContent=tr('කරුණකට අකුරු 260කට නොවැඩි වන ලෙස කරුණු 2 සිට 5 දක්වා ඇතුළත් කරන්න.','Enter 2–5 points of no more than 260 characters each.');return}
+   if(!editTitle.value.trim()){diagramStatus.textContent=tr('මාතෘකාවක් ඇතුළත් කරන්න.','Enter a title.');return}
    await Promise.race([document.fonts.load('600 30px "Noto Sans Sinhala"','සිංහල ධර්මය'),new Promise(r=>setTimeout(r,2000))]).catch(()=>{});
+   if(run!==diagramRevision)return;
    const W=960,margin=44,cardX=110,cardW=806,pad=30;
    const c=document.createElement('canvas'),measure=c.getContext('2d'),family='"Noto Sans Sinhala", sans-serif';
    measure.font='600 33px '+family;
-   const heading=lines(measure,cropWords(tidy(q),140),W-2*margin-2*pad);
+   const heading=lines(measure,editTitle.value.trim(),W-2*margin-2*pad);
    const headH=heading.length*48+64;
    measure.font='400 28px '+family;
    const cards=items.map(t=>{const ls=lines(measure,t,cardW-pad*2-54);return {ls,h:Math.max(100,ls.length*44+48)}});
-   const sourceNote=tr('පිළිතුරෙන් උපුටාගත් කරුණු • මුල් සූත්‍ර සමඟ සසඳන්න','Extracted from the answer • check against the original sources');
-   const H=margin+headH+40+cards.reduce((n,x)=>n+x.h+24,0)+72;
+   const sourceNote=tr('නිදසුනක් පමණි • මුල් ත්‍රිපිටක පාඨ සමඟ සසඳන්න','Example only • verify against the original Tipiṭaka passages');
+   measure.font='400 20px '+family;
+   const footer=lines(measure,(editRefs.value.trim()?tr('මූලාශ්‍ර: ','Sources: ')+editRefs.value.trim()+'\n':'')+sourceNote,W-2*margin);
+   const H=margin+headH+40+cards.reduce((n,x)=>n+x.h+24,0)+footer.length*30+42;
    const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');
    svg.setAttribute('xmlns',ns);svg.setAttribute('viewBox','0 0 '+W+' '+H);svg.setAttribute('width',W);svg.setAttribute('height',H);
    svg.setAttribute('role','img');svg.setAttribute('aria-label',tr('ස්වයංක්‍රීය ධර්ම කරුණු සටහන','Automatic Dhamma concept map'));
@@ -196,11 +218,11 @@ window.SuttaPoster={attach(ar,d,q,l){
     ls.forEach((v,j)=>text(cardX+pad+54,cy+47+j*44,v,28,400,'#183e32'));
     cy+=h+24;
    }
-   text(margin,H-30,sourceNote,20,400,'#49695c');
+   footer.forEach((v,i)=>text(margin,cy+18+i*30,v,20,400,'#49695c'));
    svgText=new XMLSerializer().serializeToString(svg);
    svg.style.cssText='display:block;width:100%;height:auto';diagramView.append(svg);
    diagramCanvas=c;diagramReady=true;svgSave.disabled=diagramPng.disabled=false;
-   diagramStatus.textContent=tr('පිළිතුරේ කරුණු '+items.length+'ක් ස්වයංක්‍රීයව එක් කළා.','Automatically added '+items.length+' statements from the answer.');
+   diagramStatus.textContent=tr('කරුණු '+items.length+'ක් සහිත සටහන සූදානම්.','Diagram ready with '+items.length+' points.');
   }catch(e){diagramStatus.textContent=tr('සටහන සෑදීමට නොහැකි විය. නැවත උත්සාහ කරන්න.','Could not create the diagram. Try again.')}
   finally{diagramGo.disabled=false}
  }
@@ -236,7 +258,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    if(body.value.trim())y=textBlock(ctx,body.value,x,y,w,bottom-y-footerH-flowH-12,landscape?30:36,23,'400',family,'#fffdf4')+12;
    if(steps.length){for(let i=0;i<steps.length;i++){ctx.fillStyle='rgba(236,212,160,.12)';rounded(ctx,x,y,w,45,9);ctx.fill();textBlock(ctx,steps[i],x+12,y+5,w-24,36,26,20,'600',family,'#fbe3ae');y+=49;if(i<steps.length-1){ctx.fillStyle='#ecd4a0';ctx.font='20px sans-serif';ctx.fillText('·',x+w/2-7,y-3);y+=8}}}
    if(refs.value.trim())textBlock(ctx,tr('මූලාශ්‍ර: ','Sources: ')+refs.value,x,bottom-footerH+5,w,footerH-8,22,17,'400',family,'#ecd4a0');
-   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?(artOrigin==='cpu-preset'?tr('පෙර නිර්මාණය කළ AI පසුබිම + පෙළ','Pre-generated AI background + text'):tr('CPU AI පසුබිම + පෙළ','CPU AI background + text')):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
+   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?(artOrigin==='cpu-preset'?tr('පෙර නිර්මාණය කළ AI පසුබිම + පෙළ','Pre-generated AI background + text'):tr('AI පසුබිම + පෙළ','AI background + text')):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
    png.disabled=jpg.disabled=false;
   }catch(e){status.textContent=e.message==='overflow'?tr('පෙළ වැඩියි. කෙටි කරන්න හෝ දිගු ප්‍රමාණයක් තෝරන්න.','Text is too long. Shorten it or select a taller size.'):e.message==='font'?tr('සිංහල font එක load වූයේ නැත. නැවත උත්සාහ කරන්න.','Sinhala font could not load. Try again.'):e.message==='steps'?tr('ගැලීම් කරුණු 4ක් දක්වා ඇතුළත් කරන්න.','Use up to four flow steps.'):tr('රූපය සකස් කළ නොහැකි විය.','Could not render poster.')}
   finally{if(run===revision)preview.disabled=false}
