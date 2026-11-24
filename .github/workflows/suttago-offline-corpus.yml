@@ -1,0 +1,29 @@
+name: SuttaGo isolated offline corpus
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-offline-corpus.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Fetch official source repositories
+        run: |
+          git clone --depth 1 --filter=blob:none --sparse https://github.com/pathnirvana/tipitaka.lk.git /tmp/bjt
+          git -C /tmp/bjt sparse-checkout set public/static/data public/static/text
+          git clone --depth 1 --filter=blob:none --sparse --branch published https://github.com/suttacentral/bilara-data.git /tmp/bilara
+          git -C /tmp/bilara sparse-checkout set translation/en/sujato/sutta root/pli/ms/sutta
+      - name: Build SQLite FTS and graph index
+        run: python research-lab/scripts/build_corpus.py --bjt /tmp/bjt --bilara /tmp/bilara --output out/sutta-corpus.sqlite
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: isolated-sutta-corpus
+          path: out/sutta-corpus.sqlite
+          retention-days: 7
