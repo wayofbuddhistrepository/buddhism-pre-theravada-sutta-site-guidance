@@ -311,3 +311,135 @@ module.exports=async(req,res)=>{
  }
  return beforeRelated(req,res);
 };
+
+// Adaptive hybrid grounding. Query the public source site's search form only;
+// never crawl blocked endpoints or follow arbitrary URLs supplied by users.
+const sourceHost='https://thripitakaya.org';
+const dtoHost='https://www.dhammatalks.org';
+const textOnly=s=>String(s||'').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&#(\d+);/g,(_,x)=>{let n=Number(x);return n>0&&n<=0x10ffff?String.fromCodePoint(n):''}).replace(/\s+/g,' ').trim();
+const extraStop=new Set(['ගැඹුරු','ගැඹුරින්','ගැඹුර','අනුව','තුළ','හැටියට','දෙන්න','විස්තර','කරුණු','කියන්න','මොනවාද','කුමක්ද','කෙසේද','කොහොමද','වන්නේ','වෙනස','පැහැදිලි','කියලා','උදාහරණ','උපමා','විග්‍රහ','හැඳින්වීම','deep','depth','depths','difference','explanation','detail','details','examples','explain','compare','between','teachings','meaning','according','understand','understanding']);
+const lexExpand=[
+ {keys:['සිත','සිතේ','සිතෙහි','චිත්ත','චිත්තය','චිත්තයේ','මනස','මනසේ','mind','citta'],si:['සිත','චිත්තභාවනා','චිත්තානුපස්සනා'],en:['mind','consciousness','mental cultivation']},
+ {keys:['පටිච්චසමුප්පාද','පටිච්චසමුප්පාදය','පටිච්චසමුප්පාදයේ','dependent origination','dependent arising'],si:['පටිච්චසමුප්පාද','ඉදප්පච්චයතා'],en:['dependent origination','dependent arising']},
+ {keys:['නිවන','නිවන්','නිර්වාණය','නිර්වාණ','නිබ්බාන','nibbana','nirvana','nibbāna'],si:['නිවන','නිර්වාණ','නිබ්බාන'],en:['unbinding','nibbāna','nirvana']},
+ {keys:['අනත්ත','අනාත්ම','අනාත්මය','not self','non self','non-self','anattā'],si:['අනත්ත','අනාත්ම'],en:['not-self','non-self','anattā']},
+ {keys:['මෙත්තා','මෛත්‍රිය','මෛත්‍රී','mettā','loving kindness','goodwill'],si:['මෙත්තා','මෛත්‍රී'],en:['goodwill','loving-kindness']},
+ {keys:['කරුණාව','කරුණා','compassion','karuṇā'],si:['කරුණා','කරුණාව'],en:['compassion']},
+ {keys:['වේදනාව','වේදනා','vedanā','feeling','feelings'],si:['වේදනා','වේදනාව'],en:['feeling','feelings']}
+];
+function queryPlan(q,l){
+ let raw=lexicalTerms(q).filter(t=>!extraStop.has(t)), full=norm(q), groups=[];
+ let matches=lexExpand.filter(g=>g.keys.some(k=>raw.includes(norm(k))||k.includes(' ')&&full.includes(norm(k))));
+ const used=new Set(matches.flatMap(g=>g.keys.map(norm)));
+ for(const g of matches)groups.push((l==='en'?g.en:g.si).map(norm));
+ for(let t of raw.filter(t=>!used.has(t))){
+  let stems=[t];if(l==='si'&&t.length>=7){for(let suf of ['යන්ගේ','වලින්','යකින්','යෙන්','යට','යෙහි','යේ','යේ','යක්','ය','ව'])if(t.endsWith(suf)&&t.length-suf.length>=5){stems.push(t.slice(0,-suf.length));break}}
+  groups.push(stems);
+ }
+ groups=groups.slice(0,4);let queries=[...new Set([...groups.map(g=>g[0]),...groups.flatMap(g=>g.slice(1))])].filter(t=>t.length>=3).slice(0,3);
+ return {groups,queries};
+}
+function relevance(t,plan){
+ const s=norm(textOnly(t));if(s.length<35||/(?:සූත්‍ර නාමාවලිය|වර්ගය නිමි|සංයුත්තය නිමි|විස්තර කට යුතුයි)/u.test(s))return 0;
+ const words=s.match(/[\p{L}\p{M}\p{N}]+/gu)||[];
+ const coverage=plan.groups.filter(g=>g.some(k=>s.includes(k))).length;
+ if(!coverage)return 0;
+ // A named person is not evidence about the mental concept citta.
+ if(plan.groups.some(g=>g.includes('සිත'))&&/(?:චිත්ත\s*(?:ගැහැවි|ගෘහපති)|චිත්තගහපති)/u.test(s)&&!/(?:චිත්තභාවනා|චිත්තානුපස්සනා|සිතෙහි|සිතේ|සිත\s*(?:හට|නිරුද්ධ|වඩ|දමන|සංවර|කිලිටි))/u.test(s))return 0;
+ if(plan.groups.length>1&&coverage<Math.ceil(plan.groups.length*.67))return 0;
+ const hits=plan.groups.reduce((n,g)=>n+Math.min(3,g.reduce((m,k)=>m+s.split(k).length-1,0)),0);
+ return coverage*12+hits+Math.min(2,words.length/150);
+}
+function bestGrounding(lines,plan){return lines.map(t=>({t:textOnly(t),score:relevance(t,plan)})).filter(x=>x.score>0).sort((a,b)=>b.score-a.score)[0]||null}
+const publicCache=new Map();
+async function readPublic(url,opts={}){
+ let u=new URL(url);if(![sourceHost,dtoHost].includes(u.origin))throw Error('host denied');
+ let key=opts.body?url+'?body='+opts.body:url,old=publicCache.get(key);
+ if(old&&Date.now()-old.time<300000)return old.value;
+ let r=await fetch(u,{...opts,redirect:'error',signal:AbortSignal.timeout(8000),headers:{'User-Agent':'SuttaGoResearchLab/1.0','Accept':opts.body?'application/json':'text/html',...(opts.body?{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'XMLHttpRequest'}:{})}});
+ if(!r.ok)throw Error('source '+r.status);
+ const value=await r.text();if(value.length>2500000)throw Error('source too large');
+ if(publicCache.size>=32)publicCache.delete(publicCache.keys().next().value);publicCache.set(key,{time:Date.now(),value});return value;
+}
+async function thriSearch(term,l,mode=2){
+ let body=new URLSearchParams({PageNumber:'1',LanguageIdfk:l==='pli'?'1':'2',Nikaya:'1|ත්‍රිපිටකය|1,9|සූත්‍ර පිටකය',SearchIn:String(mode),SearchText:term}).toString();
+ let d=JSON.parse(await readPublic(sourceHost+'/Tipitakaya/Search',{method:'POST',body}));
+ return (d.Suttas||[]).filter(x=>Number.isSafeInteger(x.SuttaId)&&x.SuttaId>0&&Array.isArray(x.ParentSuttas)&&x.ParentSuttas.some(z=>z.SutuctureId===9)).map(x=>({
+ id:'thri:'+x.SuttaId,sid:x.SuttaId,tree:x.ParentSuttas.filter(z=>z.IsShowInMainTree).at(-1)?.SutuctureId,title:textOnly(x.Name),detail:textOnly(x.ContentText),collection:'sutta',path:x.ParentSuttas.map(z=>textOnly(z.StructureName)).join(' › ')
+ })).filter(x=>Number.isSafeInteger(x.tree)&&x.tree>0&&x.title);
+}
+async function thriPage(id,page,l){
+ if(!Number.isSafeInteger(id)||id<=0||!Number.isSafeInteger(page)||page<1||page>100)return null;
+ let d=JSON.parse(await readPublic(sourceHost+'/Tipitakaya/LoadSuttaCont?id='+id+'&p='+page,{method:'POST',body:'_='}));
+ if(d.Id!==id||!Array.isArray(d.SuttaContents))return null;
+ let lines=d.SuttaContents.flatMap(x=>(x.SuttaContentLangModels||[]).filter(z=>z.LanguageIdfk===(l==='pli'?1:2)).map(z=>textOnly(z.Content))).filter(Boolean);
+ return {lines,more:d.SuttaContents.length>=d.PageSize,tree:d.StructureIdfk};
+}
+async function liveSinhala(plan,l){
+ let raw=await Promise.allSettled(plan.queries.slice(0,3).map(t=>thriSearch(t,l)));
+ let unique=new Map();
+ for(let r of raw)if(r.status==='fulfilled')for(let x of r.value){let s=relevance(x.detail,plan);if(!s)continue;let old=unique.get(x.id);if(!old||old.score<s)unique.set(x.id,{...x,score:s});}
+ let top=[...unique.values()].sort((a,b)=>b.score-a.score).slice(0,4);
+ // Search excerpts come from the site's full-text result itself. When
+ // a page is loaded separately, prefer the verified original paragraph.
+ let confirmed=await Promise.allSettled(top.map(async x=>{
+  let p=await thriPage(x.sid,1,l);let best=p&&bestGrounding(p.lines,plan);
+  if(best&&best.score>=x.score-2){x.detail=best.t;x.score=best.score;x.fullPageChecked=true}
+  const link=sourceHost+'/tipitakaya/Index/'+x.tree+'?s='+x.sid;
+  return {...x,primary:link,pali:link,origin:'Thripitakaya.org',evidenceType:x.fullPageChecked?'source_page':'source_search_excerpt'};
+ }));
+ return confirmed.filter(x=>x.status==='fulfilled').map(x=>x.value);
+}
+const dtoDirs=['DN','MN','SN','AN','KN'];
+async function liveEnglish(plan){
+ let indexes=await Promise.allSettled(dtoDirs.map(d=>readPublic(dtoHost+'/suttas/'+d+'/')));
+ let hits=new Map();
+ for(const r of indexes)if(r.status==='fulfilled'){
+  for(const m of r.value.matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)){
+   let href=m[1].match(/href=["'](\/suttas\/(?:DN|MN|SN|AN|KN)\/[a-zA-Z0-9_.-]+\.html)["']/);if(!href)continue;
+   let title=textOnly(m[1].match(/<strong\b[^>]*>([\s\S]*?)<\/strong>/i)?.[1]||m[1]),score=relevance(textOnly(m[1]),plan);if(!score)continue;
+   const path=href[1];if(!hits.has(path)||hits.get(path).score<score)hits.set(path,{path,title,score});
+  }
+ }
+ let best=[...hits.values()].sort((a,b)=>b.score-a.score).slice(0,4);
+ let results=await Promise.allSettled(best.map(async x=>{
+   let html=await readPublic(dtoHost+x.path);let main=html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1]||'';
+   main=main.split(/<h[1-4]\b[^>]*>\s*(?:Notes|Note|Footnotes)\s*<\/h[1-4]>/i)[0];
+   let paras=[...main.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map(m=>textOnly(m[1]));
+   let p=bestGrounding(paras,plan);if(!p)return null;
+   let id=x.path.split('/').pop().replace('.html','').toLowerCase().replace('_','.');
+   if(!validParallel(id))return null;
+   return {id:'dto:'+id,canonicalId:id.toUpperCase(),title:x.title,detail:p.t,primary:dtoHost+x.path,pali:'https://suttacentral.net/'+id+'/pli/ms',origin:'Dhammatalks.org',evidenceType:'source_page',score:p.score};
+ }));
+ return results.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value);
+}
+function comparableTitle(s){return norm(s).replace(/^\s*[\d.\s–-]+/,'').replace(/[\s.\-–]+/g,'').replace(/සූත්‍රය$|සූත්‍ර$|sutta$/u,'')}
+function sameSource(a,b){if(a.canonicalId&&b.canonicalId&&norm(a.canonicalId).replace(/\s/g,'')===norm(b.canonicalId).replace(/\s/g,''))return true;let x=comparableTitle(a.title),y=comparableTitle(b.title);return x.length>=5&&x===y}
+const priorHybrid=module.exports;
+module.exports=async(req,res)=>{
+ if(req.method==='GET'&&String(req.query.id||'').startsWith('thri:')){
+  const id=Number(String(req.query.id).slice(5)),page=Number(req.query.start||1),l=req.query.lang==='pli'?'pli':'si';
+  try{let p=await thriPage(id,page,l);if(!p||!p.lines.length)return res.status(404).json({text:null});
+   return res.json({text:p.lines.join('\n\n'),source:sourceHost+'/tipitakaya/Index/'+p.tree+'?s='+id,nextStart:p.more?page+1:null,partial:p.more})
+  }catch{return res.status(503).json({text:null})}
+ }
+ if(req.method!=='POST'||typeof req.body?.q!=='string'||req.body.q.length>500)return priorHybrid(req,res);
+ let q=req.body.q,l=req.body.lang==='en'?'en':req.body.lang==='pli'?'pli':'si',plan=queryPlan(q,l);
+ let cap=capture();await priorHybrid(req,cap.out);let old=cap.get();
+ if(!old)return priorHybrid(req,res);
+ // Preserve genuinely reviewed exact answers, but run live grounding for all unreviewed research.
+ if(!plan.queries.length||old.sources?.length&&!/candidate|දත්ත දර්ශකය|මුල් ත්‍රිපිටක පාඨ|Tipitaka.lk මූලාශ්‍ර|Mūlapāṭha pariyesanā/i.test(old.label||''))return res.json(old);
+ let offline=(old.sources||[]).map(s=>({...s,origin:'Offline corpus / original source',score:relevance(s.detail,plan),evidenceType:'indexed_source'})).filter(s=>s.score>0);
+ let live=[];try{live=l==='en'?await liveEnglish(plan):await liveSinhala(plan,l)}catch{}
+ let merged=[];for(let a of [...live,...offline].sort((a,b)=>b.score-a.score)){
+  let found=merged.find(b=>sameSource(a,b));if(found){if(a.origin!==found.origin){found.comparisonUrl=a.primary;found.comparisonOrigin=a.origin;found.score+=3}continue}
+  merged.push(a);
+ }
+ merged.sort((a,b)=>b.score-a.score);
+ // Require a live result for an unreviewed question; offline-only remains a labelled lead, not a conclusion.
+ let sources=merged.slice(0,4);
+ if(!sources.length)return res.json({...old,answer:l==='si'?'අදාළ මූලාශ්‍ර ප්‍රමාණවත් ලෙස හඳුනාගත නොහැකි විය. වැරදි පාඨ ලබාදීම වෙනුවට තවත් නිශ්චිත ධර්ම පදයක් හෝ සූත්‍ර නාමයක් යොදන්න.':l==='en'?'Insufficient relevant evidence. Try a more specific doctrinal term or sutta title.':'Pamāṇapāṭho na laddho.',sources:[],grounding:{local:offline.length,live:live.length,checked:true}});
+ let ai=await reasoning(q,l,sources.map(s=>({title:s.title,text:s.detail})));
+ let intro=l==='si'?(live.length?'සජීවී ත්‍රිපිටක සෙවුම සහ දේශීය දර්ශකය සසඳා තෝරාගත් මූලාශ්‍ර පහත දැක්වේ. මේවා AI විග්‍රහයක් නොව, අදාළ විය හැකි සාක්ෂි පාඨය.':'සජීවී සෙවුමෙන් ප්‍රමාණවත් සාක්ෂි හමු නොවීය. දේශීය දර්ශකයේ පාඨ පමණක් පෙන්වයි; ඒවා අර්ථමය වශයෙන් තහවුරු කර නැත.'):l==='en'?(live.length?'Candidate passages from live source pages and the local corpus. These are research evidence, not a generated doctrinal explanation.':'Live evidence was insufficient; these are unverified local leads.'): 'Mūlapāṭhāni passatha.';
+ return res.json({label:ai?(l==='si'?'AI විග්‍රහය — මූලාශ්‍ර සමඟ සසඳන්න':'AI explanation — compare with sources'):(l==='si'?'සජීවී + දේශීය මූලාශ්‍ර ගවේෂණය (AI විග්‍රහයක් නොවේ)':l==='en'?'Hybrid live and local grounding (not an AI explanation)':'Mūlapāṭha pariyesanā'),answer:ai||intro,sources,grounding:{local:offline.length,live:live.length,compared:sources.filter(s=>s.comparisonUrl).length,checked:true,generated:!!ai}});
+};
