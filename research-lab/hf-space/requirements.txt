@@ -1,4 +1,7 @@
-transformers>=5.2,<6
+transformers>=5.8,<6
 accelerate>=1.12,<2
 safetensors>=0.6
-torch>=2.8
+torchvision
+torchaudio
+sentencepiece
+kernels
