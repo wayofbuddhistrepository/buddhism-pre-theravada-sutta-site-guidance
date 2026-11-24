@@ -209,3 +209,78 @@ englishRoot=async function(id){
  const j=await f.json();const text=Object.entries(j).filter(([k])=>k.startsWith(id+':')).map(([,v])=>v).join('\n');
  return text?{text,source:'https://suttacentral.net/an1.49/en/sujato',title:'Luminous mind'}:null;
 };
+
+// Offline BM25 retrieval: source-attributed hashed term statistics only.
+// No generated answer is claimed when the reasoning backend is unavailable.
+const crypto=require('node:crypto'),zlib=require('node:zlib');
+const indexBase='https://raw.githubusercontent.com/wayofbuddhistrepository/buddhism-pre-theravada-sutta-site-guidance/suttago-corpus-index/index/';
+const idxCache=new Map();
+async function indexFile(path){
+ const now=Date.now(),old=idxCache.get(path);if(old&&now-old.time<1800000)return old.data;
+ const r=await fetch(indexBase+path,{signal:AbortSignal.timeout(5000)});if(!r.ok)return null;
+ const b=Buffer.from(await r.arrayBuffer());if(b.length>12000000)return null;
+ const text=path.endsWith('.gz')?zlib.gunzipSync(b,{maxOutputLength:50000000}).toString('utf8'):b.toString('utf8');
+ const data=JSON.parse(text);if(idxCache.size>=20)idxCache.delete(idxCache.keys().next().value);idxCache.set(path,{time:now,data});return data;
+}
+const lexicalStop=new Set([...stop,'පිළිබඳව','සම්බන්ධ','දහම','විස්තරයක්','දක්වන්න','කියන්නෙ','කියන්නේ','විස්තරාත්මකව','තව','මට','යනු','the','what','about','please','tell','explain','does','buddha','buddhism','buddhist','according','teachings','meaning','describe','how','and','for','with','from','that','this','which']);
+function lexicalTerms(q){return [...new Set((norm(q).match(/[\p{L}\p{M}\p{N}]+/gu)||[]).filter(x=>x.length>=3&&x.length<=60&&!lexicalStop.has(x)&&!/^\d+$/.test(x)))].slice(0,5)}
+async function offlineRank(q,lang){
+ const terms=lexicalTerms(q);if(!terms.length)return [];
+ const langKey=lang==='pli'&&/[\u0d80-\u0dff]/u.test(q)?'pli-si':lang;
+ const manifest=await indexFile('manifest.json');const meta=manifest?.languages?.[langKey];if(!meta||manifest.schema!==1)return [];
+ const docs=await indexFile(langKey+'/docs.json.gz');if(!Array.isArray(docs)||docs.length!==meta.documents)return [];
+ const hashes=terms.map(t=>crypto.createHash('sha256').update(t).digest('hex').slice(0,20));
+ const shards=await Promise.all([...new Set(hashes.map(h=>h.slice(0,2)))].map(async k=>[k,await indexFile(langKey+'/'+k+'.json.gz')]));
+ const sm=new Map(shards),scores=new Map();let informative=0;
+ for(const h of hashes){
+  const entry=sm.get(h.slice(0,2))?.[h];if(!entry)continue;
+  const [df,posts]=entry;if(!Number.isFinite(df)||!Array.isArray(posts)||df/meta.documents>0.6)continue;
+  informative++;const idf=Math.log(1+(meta.documents-df+0.5)/(df+0.5));
+  for(const [i,tf] of posts){const d=docs[i];if(!d||tf<=0)continue;const s=idf*(tf*2.2)/(tf+1.2*(0.25+0.75*d[1]/meta.avgdl));const v=scores.get(i)||{score:0,matched:0};v.score+=s;v.matched++;scores.set(i,v)}
+ }
+ if(!informative)return [];
+ return [...scores].filter(([,s])=>s.matched>=Math.max(1,Math.ceil(informative*.6))).sort((a,b)=>b[1].matched-a[1].matched||b[1].score-a[1].score).slice(0,8).map(([i,s])=>({id:docs[i][0],...s}));
+}
+function passageScore(t,ts){let w=new Set(lexicalTerms(t));let text=norm(t);return ts.reduce((n,x)=>n+(w.has(x)?4:text.includes(x)?1:0),0);}
+function bestPassage(lines,ts){return lines.filter(t=>typeof t==='string'&&t.length>=35).map(t=>({t,s:ts.reduce((n,x)=>n+(norm(t).includes(x)?1:0),0)})).sort((a,b)=>b.s-a.s)[0]||null;}
+async function indexedCandidates(q,l){
+ const ranked=await offlineRank(q,l),ts=lexicalTerms(q);
+ if(!ranked.length)return null;
+ let hits=await Promise.allSettled(ranked.slice(0,5).map(async r=>{
+  if(r.id.startsWith('bjt:')&&l!=='en'){
+   const d=await nodeText(r.id.slice(4),l);if(!d)return null;let p=bestPassage(d.lines,ts);if(!p||!p.s)return null;
+   return {id:d.id,title:d.title,detail:p.t,primary:d.source,pali:'https://tipitaka.lk/'+d.key+'/pali',page:d.page};
+  }
+  if(!r.id.startsWith('sc:')||l==='si')return null;
+  const id=r.id.slice(3);
+  if(!/^(?:dn|mn|sn|an)\d+(?:\.\d+)?(?:-\d+)?$/.test(id))return null;
+  let d=l==='en'?await englishRoot(id):await root(id);if(!d)return null;
+  let p=bestPassage(d.text.split('\n'),ts);if(!p||!p.s)return null;
+  return {id,title:d.title||id,detail:p.t,primary:'https://suttacentral.net/'+id+(l==='en'?'/en/sujato':'/pli/ms'),pali:'https://suttacentral.net/'+id+'/pli/ms'};
+ }));
+ let sources=hits.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value).slice(0,3);
+ if(!sources.length)return null;
+ return {label:l==='si'?'දත්ත දර්ශකයේ අදාළ විය හැකි පාඨ — AI විග්‍රහයක් නොවේ':l==='en'?'Offline corpus candidates — not an AI explanation':'Mūlapāṭha pariyesanā',answer:l==='si'?'මෙම විමසුම සඳහා දත්ත දර්ශකයෙන් හමු වූ පාඨ පහතින් දැක්වේ. ඒවායේ අර්ථමය අදාළත්වය තවම AI මඟින් තහවුරු කර නැත. මුල් මූලාශ්‍රය සමඟ සසඳන්න.':l==='en'?'The offline index found these candidate passages. Their semantic relevance has not yet been verified by an AI model. Compare with the original source.':'Mūlapāṭhāni passatha.',sources};
+}
+const earlierHandler=module.exports;
+module.exports=async(req,res)=>{
+ if(req.method==='GET'&&String(req.query.id||'').startsWith('bjt:')){
+  let key=String(req.query.id).slice(4),lang=req.query.lang==='pli'?'pli':'si';if(!keyRE.test(key)||!canonical(key))return res.status(400).json({error:'invalid id'});
+  try{let n=(await bjt('tree.node',{key}))[0];if(!n||n.key!==key||n.collection!=='mula')return res.status(404).json({text:null});
+   let start=req.query.start===undefined?n.page_idx:Number(req.query.start);
+   if(!Number.isInteger(start)||start<n.page_idx||start>=n.page_count)return res.status(400).json({error:'invalid page'});
+   let end=Math.min(start+2,n.page_count-1),entries=await bjt('text.entries',{file:n.file,from:start,to:end});
+   let matched=entries.filter(x=>x.node_key===key),field=lang==='pli'?'p_text':'s_text';
+   let lines=matched.map(x=>x[field]).filter(x=>typeof x==='string'&&x.trim());if(!lines.length)return res.status(404).json({text:null});
+   let last=matched[matched.length-1],more=end<n.page_count-1&&last.page_idx===end&&entries[entries.length-1]?.node_key===key;
+   res.setHeader('Cache-Control','public, max-age=300');
+   return res.json({text:lines.join('\n\n'),source:'https://tipitaka.lk/'+key+'/'+(lang==='pli'?'pali':'sinh'),page:matched[0].page_num,partial:more,nextStart:more?end+1:null,attribution:'Tipitaka.lk — Buddha Jayanthi Tipitaka, CC BY-ND 4.0'});
+  }catch{return res.status(503).json({text:null})}
+ }
+ if(req.method==='POST'&&typeof req.body?.q==='string'&&req.body.q.length<=500){
+  const c=capture();await earlierHandler(req,c.out);const prior=c.get();
+  if(prior?.sources?.length)return res.json(prior);
+  if(prior){try{const d=await indexedCandidates(req.body.q,req.body.lang==='en'?'en':req.body.lang==='pli'?'pli':'si');if(d)return res.json(d)}catch{}return res.json(prior)}
+ }
+ return earlierHandler(req,res);
+};
