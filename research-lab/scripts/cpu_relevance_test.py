@@ -28,7 +28,13 @@ path=hf_hub_download("Qwen/Qwen3-8B-GGUF","Qwen3-8B-Q4_K_M.gguf",revision="7c414
 llm=Llama(model_path=path,n_ctx=8192,n_threads=2,n_gpu_layers=0,verbose=False)
 evidence="\n".join(f"[S{i+1}] {x[1]} {x[2][:650]}" for i,x in enumerate(selected))
 prompt=f"පහත මූලාශ්‍ර අනුව සිංහලෙන් පමණක් පිළිතුරු දෙන්න. අදාළ නැති පාඨ නොගන්න. [S1] වැනි සබැඳි අංක යොදන්න. ප්‍රශ්නය: {question}\n{evidence}\n/no_think"
-out=llm.create_chat_completion(messages=[{"role":"user","content":prompt}],max_tokens=350,temperature=0.1)["choices"][0]["message"]["content"]
+# Explicitly prefill a closed thinking block; do not spend the answer budget on reasoning traces.
+chat="<|im_start|>system\nYou are a careful Buddhist textual research assistant. Use only supplied evidence. Answer in Sinhala with inline [S1], [S2], [S3] references.<|im_end|>\n<|im_start|>user\n"+prompt+"<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+assert len(llm.tokenize(chat.encode("utf-8"),special=True))+1200<8192
+out=llm(chat,max_tokens=1200,temperature=0.1,stop=["<|im_end|>","<|endoftext|>"])["choices"][0]["text"]
+import re
+out=re.sub(r"<think>.*?</think>","",out,flags=re.S).strip()
+assert "<think>" not in out,"unfinished reasoning"
 print("CPU grounded draft:",out)
 print("Relevant-source top 3:",sum(x[0] in keys[:3] for x in selected),"/3")
 assert out and any("\u0d80"<=c<="\u0dff" for c in out)
