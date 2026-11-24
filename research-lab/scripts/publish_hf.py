@@ -13,7 +13,7 @@ for name,folder in [("suttago-reasoning-lab","hf-space"),("suttago-gemma-researc
     try:
         if api.repo_exists(repo,repo_type="space"):
             rt=api.get_space_runtime(repo)
-            if str(rt.requested_hardware)!="zero-a10g" and str(rt.hardware)!="zero-a10g":
+            if getattr(rt.requested_hardware,"value",rt.requested_hardware)!="zero-a10g" and getattr(rt.hardware,"value",rt.hardware)!="zero-a10g":
                 print("Skipped non-ZeroGPU Space:",repo)
                 continue
             existing=api.space_info(repo)
