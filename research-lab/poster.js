@@ -123,11 +123,11 @@ window.SuttaPoster={attach(ar,d,q,l){
 
  make.onclick=async()=>{
   const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('රූපය විස්තර කරන්න.','Describe the image.');return}
-  make.disabled=true;artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
+  make.disabled=true;aiStatus.textContent=tr('CPU මඟින් අලුත් AI රූපය නිර්මාණය කරමින්…','Creating a new CPU AI background…');artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
   if(uploadUrl){URL.revokeObjectURL(uploadUrl);uploadUrl=null}
   try{
    // Only the server's configured CPU backend may generate a neural image.
-   const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p,seed:sceneSeed}),signal:AbortSignal.timeout(12000)});
+   const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p,seed:sceneSeed}),signal:AbortSignal.timeout(72000)});
    if(r.ok){const blob=await r.blob();if(!/^image\/(?:png|jpeg|webp)$/.test(blob.type)||blob.size>12000000)throw Error('invalid image');uploadUrl=URL.createObjectURL(blob);uploaded=await load(uploadUrl);bg.value='upload';artOrigin='cpu-ai'}
   }catch{}
   if(!uploaded)await tryPreset(p);
