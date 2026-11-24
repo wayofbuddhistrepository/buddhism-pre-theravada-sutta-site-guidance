@@ -104,7 +104,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  const diagramGo=add(diagram,'button',tr('ස්වයංක්‍රීයව සටහන සාදන්න','Create diagram automatically'));diagramGo.type='button';
  const diagramStatus=add(diagram,'small',''),diagramView=add(diagram,'div');diagramView.style.cssText='overflow:auto;background:#fffdf6;border-radius:8px;margin-top:8px';
  const downloads=add(diagram,'div');downloads.className='poster-actions';
- const svgSave=add(downloads,'button','SVG'),diagramPng=add(downloads,'button','PNG');svgSave.type=diagramPng.type='button';svgSave.disabled=diagramPng.disabled=true;
+ const svgSave=add(downloads,'button','SVG'),diagramPng=add(downloads,'button',tr('සටහන PNG','Diagram PNG'));svgSave.type=diagramPng.type='button';svgSave.disabled=diagramPng.disabled=true;
  let svgText='',diagramCanvas=null,diagramReady=false;
  function points(){
   const text=String(d.answer||'').replace(/<[^>]*>/g,'').replace(/\*\*|__/g,'').replace(/\r/g,'');
