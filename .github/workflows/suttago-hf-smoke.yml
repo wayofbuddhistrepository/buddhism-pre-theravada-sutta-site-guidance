@@ -1,0 +1,20 @@
+name: SuttaGo ZeroGPU inference verification
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['.github/workflows/suttago-hf-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  evaluate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    environment: suttago-hf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python research-lab/scripts/hf_smoke.py
+        env:
+          SUTTA_SPACE_KEY: ${{ secrets.SUTTA_SPACE_KEY }}
