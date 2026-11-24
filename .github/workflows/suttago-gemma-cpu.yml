@@ -9,7 +9,7 @@ permissions:
 jobs:
   cpu:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -22,6 +22,10 @@ jobs:
             repo: bartowski/google_gemma-4-E4B-it-GGUF
             rev: 029e94146666900b08caf49a3b47b413dfa8ec66
             file: google_gemma-4-E4B-it-Q4_K_M.gguf
+          - name: gemma-4-12b
+            repo: bartowski/gemma-4-12B-it-GGUF
+            rev: 2ae7d41be21ca62de00a2d320ee9cec50daa3aa6
+            file: gemma-4-12B-it-Q4_K_M.gguf
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
