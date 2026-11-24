@@ -586,13 +586,66 @@ reasoning=async function(q,l,e){
   let ans=await spaceAnswer(id,env,p,l,e.length,ctx);if(ans){ctx.model=id;return ans}}
  return null;
 };
-function facetsFor(s,p){let t=norm(String(s.originalEvidence||s.detail||'')+' '+(s.title||''));return p.groups.map((g,i)=>g.some(k=>t.includes(k))?i:-1).filter(i=>i>=0)}
+function facetsFor(s,p){let t=norm(String(s.originalEvidence||s.detail||''));return p.groups.map((g,i)=>g.some(k=>t.includes(k))?i:-1).filter(i=>i>=0)}
 function rankSource(s,p){let score=0;for(let g of p.groups)score+=relevance(s.originalEvidence||s.detail,{groups:[g],queries:[g[0]]});return score;}
+
+// Additional live grounding lane: re-fetch exact search-result pages and match canonical node IDs.
+// Never trust the search hit ID alone or silently turn an unrelated first page into evidence.
+function stableSourceIdentity(s){
+ const id=String(s.id||'');
+ if(id.startsWith('bjt:'))return knownCrossIds[id.slice(4)]||id;
+ if(id.startsWith('dto:'))return id.slice(4);
+ return id;
+}
+async function liveBjtGrounding(plan,l){
+ if(l==='en')return [];
+ let qs=[...new Set(plan.groups.flatMap(g=>g.slice(0,2)))].filter(t=>/^[\p{L}\p{M} ]+$/u.test(t)&&t.length>=5).slice(0,3);
+ if(!qs.length)return [];
+ let results=await Promise.allSettled(qs.map(q=>bjt('fts.candidates',{q:'"'+q+'"',lang:l==='pli'?0:1,groups:'',limit:35})));
+ let pages=new Map();
+ for(let r of results){if(r.status!=='fulfilled')continue;
+  for(let x of r.value){if(!/^(?:dn|mn|sn|an|kn)-[a-z0-9-]+$/.test(x.file||'')||!Number.isInteger(x.page_idx)||x.page_idx<0)continue;let k=x.file+':'+x.page_idx;if(!pages.has(k)&&pages.size<6)pages.set(k,x)}
+ }
+ let found=await Promise.allSettled([...pages.values()].map(async x=>{
+   let rows=await bjt('text.entries',{file:x.file,from:x.page_idx,to:x.page_idx});
+   const field=l==='pli'?'p_text':'s_text',byNode=new Map();
+   for(let row of rows){if(!/^(?:dn|mn|sn|an|kn)-[a-z0-9-]+$/.test(row.node_key||'')||typeof row[field]!=='string')continue;let group=byNode.get(row.node_key)||[];group.push(row[field]);byNode.set(row.node_key,group)}
+   let candidates=[];
+   for(let [key,lines] of byNode){
+    const score=rankSource({detail:lines.join('\n')},plan);
+    if(score<=0)continue;
+    candidates.push({key,lines,score});
+   }
+   candidates.sort((a,b)=>b.score-a.score);
+   let out=[];
+   for(let c of candidates.slice(0,1)){
+    let n=(await bjt('tree.node',{key:c.key}))[0];
+    if(!n||n.key!==c.key||n.collection!=='mula'||n.file!==x.file)continue;
+    let best=c.lines.map((t,i)=>({t,i,score:rankSource({detail:t},plan)})).sort((a,b)=>b.score-a.score)[0];
+    if(!best?.score)continue;
+    out.push({id:'bjt:'+c.key,title:l==='pli'?n.pali:n.sinh,detail:best.t,primary:'https://tipitaka.lk/'+c.key+'/'+(l==='pli'?'pali':'sinh'),pali:'https://tipitaka.lk/'+c.key+'/pali',origin:'Tipitaka.lk',evidenceType:'matched_source_page',matchedPage:x.page_idx,score:c.score});
+   }
+   return out;
+ }));
+ return found.filter(x=>x.status==='fulfilled').flatMap(x=>x.value).sort((a,b)=>b.score-a.score).slice(0,4);
+}
+
 async function originalEvidence(s,l,p){
  // Reviewed summaries are never passed to the model as original quotations.
  let id=String(s.id||''),lines=[],origin=s.origin;
- if(id.startsWith('bjt:')){let d=await nodeText(id.slice(4),l);if(d){lines=d.lines;origin='Tipitaka.lk'}}
- else if(id.startsWith('thri:')){let d=await thriPage(Number(id.slice(5)),1,l);if(d){lines=d.lines;origin='Thripitakaya.org'}}
+ if(id.startsWith('bjt:')){
+  let key=id.slice(4),d=await nodeText(key,l);
+  if(d){lines=d.lines;origin='Tipitaka.lk'}
+  if(Number.isInteger(s.matchedPage)&&s.matchedPage>=0){
+   let n=(await bjt('tree.node',{key}))[0];
+   if(n?.key===key&&n.collection==='mula'&&s.matchedPage<n.page_count){
+    let rr=await bjt('text.entries',{file:n.file,from:s.matchedPage,to:s.matchedPage});
+    let more=rr.filter(x=>x.node_key===key).map(x=>l==='pli'?x.p_text:x.s_text).filter(x=>typeof x==='string'&&x.trim());
+    if(more.length)lines=more;
+   }
+  }
+ }
+ else if(id.startsWith('thri:')){let d=await thriPage(Number(id.slice(5)),1,l);if(d){lines=d.lines;origin='Thripitakaya.org';if(d.more&&!lines.some(t=>rankSource({detail:t},p)>0)){let next=await thriPage(Number(id.slice(5)),2,l);if(next)lines=lines.concat(next.lines)}}}
  else if(id.startsWith('dto:')){if(s.evidenceType==='source_page'){lines=[s.detail];origin='Dhammatalks.org'}}
  else if(validParallel(id)){
   if(l==='si'){let r=rows.find(x=>x[0]===id);let key=r?.[4]||Object.keys(knownCrossIds).find(k=>knownCrossIds[k]===id);if(key){let d=await nodeText(key,'si');if(d){lines=d.lines;origin='Tipitaka.lk'}}}
@@ -600,7 +653,7 @@ async function originalEvidence(s,l,p){
  }
  let ranked=lines.map((t,i)=>({t,i,s:rankSource({detail:t},p)})).filter(x=>x.s>0).sort((a,b)=>b.s-a.s).slice(0,3);
  // When the first page lacks the matched term, retain only a clearly labelled search lead.
- if(!ranked.length&&s.evidenceType==='source_page'&&s.detail)ranked=[{t:s.detail,i:0,s:1}];
+ // A first-page mismatch is not verified evidence.
  if(!ranked.length)return null;
  let selected=new Set();for(const x of ranked){selected.add(x.i);if(x.i>0)selected.add(x.i-1);if(x.i+1<lines.length)selected.add(x.i+1)}
  let text=lines.length?[...selected].sort((a,b)=>a-b).map(i=>lines[i]).filter(Boolean).join('\n'):ranked.map(x=>x.t).join('\n');
@@ -624,14 +677,16 @@ module.exports=async(req,res)=>{
   // Parallel workers use fixed trusted endpoints, bounded fan-out, and no paid AI calls.
   const liveFn=l==='en'?liveEnglish:liveSinhala;
   lanes.push({name:'live',run:()=>liveFn(plan,l)});
+  if(plan.deep&&l!=='en')lanes.push({name:'bjt',run:()=>liveBjtGrounding(plan,l)});
   if(plan.deep&&plan.groups.length>1)for(const g of plan.groups.slice(0,2))lanes.push({name:'facet',run:async()=>{let r=await liveFn({groups:[g],queries:[g[0]]},l);return r.slice(0,2).map(s=>({...s,facet:g[0]}))}});
   const work=await Promise.allSettled(lanes.map(x=>x.run()));
   let local=work[0].status==='fulfilled'?work[0].value:null;
   let live=work.slice(1).flatMap(x=>x.status==='fulfilled'&&Array.isArray(x.value)?x.value:[]);
+  if(l==='en'&&local?.sources?.length){try{live.push(...await directEnglish(local.sources,plan))}catch{}}
   let pool=[...(local?.sources||[]).map(s=>({...s,team:'corpus'})),...live.map(s=>({...s,team:'live'}))];
-  let unique=[];for(let s of pool){if(!s?.id||!s.primary)continue;if(/^bjt:vp-/i.test(s.id)&&!/(?:විනය|විනයපිටක|උපසම්පදා|පාතිමොක්ඛ|vinaya|monastic discipline)/iu.test(q))continue;let other=unique.find(x=>x.id===s.id||sameSource(x,s));if(other){if(other.team!==s.team){other.comparisonUrl=s.primary;other.comparisonOrigin=s.origin||'Original source'}continue}unique.push(s)}
+  let unique=[];for(let s of pool){if(!s?.id||!s.primary)continue;if(/^bjt:vp-/i.test(s.id)&&!/(?:විනය|විනයපිටක|උපසම්පදා|පාතිමොක්ඛ|vinaya|monastic discipline)/iu.test(q))continue;let other=unique.find(x=>stableSourceIdentity(x)===stableSourceIdentity(s));if(other){if(Number.isInteger(s.matchedPage)&&other.id===s.id)other.matchedPage=s.matchedPage;if(other.primary!==s.primary){other.comparisonUrl=s.primary;other.comparisonOrigin=s.origin||'Original source'}continue}unique.push(s)}
   // Source verification team retrieves original pages in parallel before generation.
-  let original=await Promise.allSettled(unique.slice(0,plan.deep?10:6).map(s=>originalEvidence(s,l,plan)));
+  let original=await Promise.allSettled(unique.slice(0,plan.deep?14:6).map(s=>originalEvidence(s,l,plan)));
   let verified=original.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value).sort((a,b)=>b.score-a.score);
   const selected=[];for(let i=0;i<plan.groups.length;i++){let s=verified.find(x=>facetsFor(x,plan).includes(i));if(s&&!selected.includes(s))selected.push(s)}
   for(const s of verified){if(selected.length>=(plan.deep?6:4))break;if(!selected.includes(s))selected.push(s)}
