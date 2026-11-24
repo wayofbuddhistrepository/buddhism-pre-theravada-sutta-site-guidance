@@ -27,3 +27,5 @@ jobs:
             /tmp/poster-demo.png
             /tmp/auto-dhamma-diagram.svg
             /tmp/auto-dhamma-diagram.png
+
+# Re-run with distinct export controls.
