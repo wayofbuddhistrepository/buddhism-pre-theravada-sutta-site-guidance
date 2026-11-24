@@ -7,10 +7,18 @@ const styles=document.createElement('style');styles.textContent='.poster-editor{
 const add=(p,t,v)=>{const n=document.createElement(t);if(v!==undefined)n.textContent=v;p.append(n);return n};
 const tidy=s=>String(s||'').replace(/<[^>]*>/g,'').replace(/\*\*|__|^#{1,6}\s*/gm,'').replace(/\[S\d+\]/g,'').replace(/\s+/g,' ').trim();
 function cropWords(s,n){const w=Array.from(s);if(w.length<=n)return s;const sub=w.slice(0,n).join('');const i=sub.lastIndexOf(' ');return (i>n*.65?sub.slice(0,i):sub)+'…'}
+function sourceQuotes(d){
+ const out=[];for(const [i,s] of (d.sources||[]).entries())for(const p of s.passages||[]){
+  if(typeof p.text!=='string'||!p.pali||!p.locator)continue;
+  const t=p.text.replace(/\s+/g,' ').trim();
+  if(t.length>=20&&t.length<=240&&!out.some(x=>x.includes(t)))out.push(t+' ['+(s.citation||'S'+(i+1))+']');
+ }
+ return out;
+}
 function extract(d){
+ if(d.grounding?.generated!==true)return sourceQuotes(d).slice(0,2).join('\n\n');
  const lines=String(d.answer||'').split(/\n+/).map(x=>x.replace(/^\s*[-*•]\s*/,'').trim()).filter(Boolean);
- const substantive=lines.filter(x=>tidy(x).length>55&&!/^(?:සපයන ලද|පහත දැක්වෙන්නේ|Based on the provided)/i.test(x));
- return substantive.slice(0,3).map(x=>cropWords(tidy(x),210)).join('\n\n');
+ return lines.filter(x=>tidy(x).length>40&&tidy(x).length<=250&&/\[S\d+\]/.test(x)).slice(0,2).map(x=>x.replace(/\*\*|__/g,'')).join('\n\n');
 }
 function load(url){return new Promise((resolve,reject)=>{let i=new Image();i.crossOrigin='anonymous';i.onload=()=>resolve(i);i.onerror=reject;i.src=url})}
 function rounded(ctx,x,y,w,h,r){ctx.beginPath();ctx.roundRect(x,y,w,h,r)}
@@ -28,13 +36,18 @@ function scenic(ctx,W,H,theme,prompt,seed){
  let state=hash>>>0;const rnd=()=>{state=(Math.imul(state,1664525)+1013904223)>>>0;return state/4294967296};
  const p=prompt.toLowerCase(),forest=/forest|woods|වනාන්තර|කැලෑ/.test(p),falls=/waterfall|දිය\s*ඇල්ල/.test(p),night=/night|moon|රාත්‍රි|සඳ/.test(p),lotuses=/lotus|නෙළුම්|පොකුණ/.test(p),lake=/lake|විල|pond|පොකුණ/.test(p);
  const sky=ctx.createLinearGradient(0,0,0,H*.65);sky.addColorStop(0,night?'#213555':'#7198b0');sky.addColorStop(.55,night?'#7c8caa':'#e7c4ad');sky.addColorStop(1,night?'#a9b9b0':'#fff0c2');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
- const sx=W*(.26+rnd()*.17),sy=H*.19;let glow=ctx.createRadialGradient(sx,sy,0,sx,sy,W*.35);glow.addColorStop(0,'#fff9db');glow.addColorStop(.2,night?'#d9e7ff77':'#fff0b4aa');glow.addColorStop(1,'#fff0');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
+ const sx=W*(.13+rnd()*.73),sy=H*(.09+rnd()*.22);let glow=ctx.createRadialGradient(sx,sy,0,sx,sy,W*.35);glow.addColorStop(0,'#fff9db');glow.addColorStop(.2,night?'#d9e7ff77':'#fff0b4aa');glow.addColorStop(1,'#fff0');ctx.fillStyle=glow;ctx.fillRect(0,0,W,H);
  ctx.fillStyle=night?'#e9f0f8':'#fff4cd';ctx.beginPath();ctx.arc(sx,sy,W*.043,0,7);ctx.fill();
  for(let j=0;j<5;j++){let base=H*(.34+j*.075);ctx.fillStyle=['#a5b6ba','#849f9e','#618b81','#477464','#285d50'][j];ctx.beginPath();ctx.moveTo(0,H);ctx.lineTo(0,base);for(let i=0;i<=24;i++)ctx.lineTo(i*W/24,base+Math.sin(i*.63+j)*H*.055+(rnd()-.5)*H*.035);ctx.lineTo(W,H);ctx.closePath();ctx.fill()}
- const waterY=H*.61;const water=ctx.createLinearGradient(0,waterY,0,H);water.addColorStop(0,'#91b2a4');water.addColorStop(1,'#285d63');ctx.fillStyle=water;ctx.fillRect(0,waterY,W,H-waterY);
+ const waterY=H*(.43+rnd()*.22);const water=ctx.createLinearGradient(0,waterY,0,H);water.addColorStop(0,'#91b2a4');water.addColorStop(1,'#285d63');ctx.fillStyle=water;ctx.fillRect(0,waterY,W,H-waterY);
  for(let i=0;i<220;i++){let y=waterY+rnd()*(H-waterY),x=rnd()*W;ctx.strokeStyle=i%5===0?'#f5ddac70':'#c9e5cd40';ctx.lineWidth=1+rnd()*2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+10+rnd()*W*.13,y);ctx.stroke()}
  function tree(x,y,h){let thick=h*.075;ctx.fillStyle='#254a40';ctx.beginPath();ctx.moveTo(x-thick,y);ctx.quadraticCurveTo(x+thick,y-h*.6,x-thick*.2,y-h);ctx.lineTo(x+thick*.4,y-h);ctx.quadraticCurveTo(x+thick*2,y-h*.5,x+thick,y);ctx.fill();for(let i=0;i<50;i++){let ang=rnd()*6.28,rr=Math.sqrt(rnd())*h*.32,xx=x+Math.cos(ang)*rr,yy=y-h*.8+Math.sin(ang)*rr*.65;ctx.fillStyle=['#275d48','#326d51','#4d8460','#80a96c','#b3c787'][Math.floor(rnd()*5)];ctx.beginPath();ctx.ellipse(xx,yy,h*(.06+rnd()*.095),h*(.04+rnd()*.07),rnd()*3,0,7);ctx.fill()}}
  for(let i=0;i<(forest?16:8);i++){let x=W*(rnd()<.5?rnd()*.3:.72+rnd()*.28);tree(x,H*(.52+rnd()*.14),H*(.15+rnd()*.3))}
+ if(forest&&!lake&&!lotuses&&!falls){
+  ctx.fillStyle='#456b49';ctx.fillRect(0,waterY,W,H-waterY);
+  const pathX=W*(.18+rnd()*.65);ctx.fillStyle='#c4b694';ctx.beginPath();ctx.moveTo(pathX,waterY);ctx.bezierCurveTo(pathX-W*.08,H*.78,pathX+W*.18,H*.91,pathX+W*.25,H);ctx.lineTo(pathX-W*.24,H);ctx.bezierCurveTo(pathX-W*.02,H*.87,pathX-W*.15,H*.76,pathX,waterY);ctx.fill();
+  for(let i=0;i<160;i++){const x=rnd()*W,y=waterY+rnd()*(H-waterY);ctx.fillStyle=['#73946a','#92a375','#315e47'][i%3];ctx.beginPath();ctx.ellipse(x,y,4+rnd()*14,2+rnd()*7,rnd()*3,0,7);ctx.fill()}
+ }
  if(falls){ctx.fillStyle='#516b60';ctx.fillRect(W*.25,H*.38,W*.22,H*.28);for(let i=0;i<20;i++){ctx.strokeStyle=i%3===0?'#edf5dfaa':'#b9e7d6aa';ctx.lineWidth=2+rnd()*W*.009;let x=W*(.29+rnd()*.12);ctx.beginPath();ctx.moveTo(x,H*.39);ctx.bezierCurveTo(x-W*.01,H*.49,x+W*.02,H*.55,x+W*.025,H*.65);ctx.stroke()}}
  if(!forest||lake||lotuses||falls){for(let i=0;i<(lotuses?70:18);i++){let x=rnd()*W,y=H*(.68+rnd()*.3),r=W*(.006+rnd()*.018);ctx.fillStyle='#6a9e69';ctx.beginPath();ctx.ellipse(x,y,r*1.7,r*.5,0,0,7);ctx.fill();if(i%3===0){for(let k=-2;k<=2;k++){ctx.save();ctx.translate(x,y);ctx.rotate(k*.4);ctx.fillStyle=k%2?'#e3a3b8':'#f3c4cc';ctx.beginPath();ctx.ellipse(0,-r*.8,r*.42,r*.9,0,0,7);ctx.fill();ctx.restore()}}}}
 }
@@ -70,7 +83,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  add(editor,'small',tr('පෙළ සංස්කරණය කර මුල් සූත්‍ර සමඟ සසඳන්න. රූපය මේ උපාංගයේ නිර්මාණය වේ.','Edit and verify the text against the sources. The poster is composed on this device.'));
  function field(name,tag,value){add(editor,'label',name);let x=add(editor,tag);x.value=value;return x}
  const title=field(tr('මාතෘකාව','Title'),'input',cropWords(tidy(q),90));title.maxLength=100;
- const body=field(tr('දහම් සාරය (සංස්කරණය කළ හැක)','Editable Dhamma excerpt'),'textarea',extract(d)||cropWords(tidy(d.answer),400));body.rows=5;body.maxLength=900;
+ const body=field(d.grounding?.generated===true?tr('දහම් සාරය (සංස්කරණය කළ හැක)','Editable Dhamma excerpt'):tr('මුල් මූලාශ්‍ර උපුටාගැනීම් (AI විග්‍රහයක් නොවේ)','Canonical excerpts (not AI interpretation)'),'textarea',extract(d));body.rows=5;body.maxLength=900;if(!body.value)add(editor,'small',tr('කෙටි සම්පූර්ණ පාඨයක් ස්වයංක්‍රීයව තෝරාගත නොහැකි විය. පහළ මුල් මූලාශ්‍රයෙන් සුදුසු පාඨයක් තෝරන්න.','No short complete passage was available automatically. Select a passage from the original sources below.'));
  const flow=field(tr('පෝස්ටරයට අමතර කරුණු (අවශ්‍ය නම්)','Optional poster notes — one point per line'),'textarea','');flow.rows=3;flow.maxLength=240;
  const refs=field(tr('මූලාශ්‍ර','Sources'),'input',(d.sources||[]).slice(0,3).map(s=>s.canonicalId||s.title||s.id).map(tidy).join(' · '));refs.maxLength=180;
  const controls=add(editor,'div');controls.className='poster-grid';
@@ -79,17 +92,17 @@ window.SuttaPoster={attach(ar,d,q,l){
  const theme=select(tr('වර්ණය','Theme'),[['green',tr('හරිත / රන්','Jade / gold')],['gold',tr('රන්වන්','Warm gold')]]);
  const font=select(tr('අකුරු','Font'),[['Noto Sans Sinhala','Noto Sans Sinhala'],['Abhaya Libre','Abhaya Libre']]);
  const bg={value:'illustrated',addEventListener(){}};
- let uploaded=null,uploadUrl=null,sceneSeed=0,artPrompt='peaceful lotus pond at sunrise',artOrigin='illustrated';
+ let uploaded=null,uploadUrl=null,sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0],artPrompt='peaceful lotus pond at sunrise',artOrigin='illustrated';
  const prompt=field(tr('ඔබට අවශ්‍ය රූපය විස්තර කරන්න','Describe your background'),'textarea',artPrompt);prompt.rows=3;prompt.maxLength=350;
  const make=add(editor,'button',tr('✦ අලුත් පසුබිමක් සාදන්න','✦ Create background'));make.type='button';
  const aiStatus=add(editor,'small','');
  make.onclick=async()=>{
   const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('රූපය විස්තර කරන්න.','Describe the image.');return}
-  make.disabled=true;artPrompt=p;sceneSeed++;uploaded=null;bg.value='illustrated';artOrigin='illustrated';
+  make.disabled=true;artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
   if(uploadUrl){URL.revokeObjectURL(uploadUrl);uploadUrl=null}
   try{
    // Only the server's configured CPU backend may generate a neural image.
-   const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p}),signal:AbortSignal.timeout(12000)});
+   const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p,seed:sceneSeed}),signal:AbortSignal.timeout(12000)});
    if(r.ok){const blob=await r.blob();if(!/^image\/(?:png|jpeg|webp)$/.test(blob.type)||blob.size>12000000)throw Error('invalid image');uploadUrl=URL.createObjectURL(blob);uploaded=await load(uploadUrl);bg.value='upload';artOrigin='cpu-ai'}
   }catch{}
   await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):tr('ක්ෂණික භූදර්ශනය සූදානම් (AI නොවේ).','Instant illustration ready (not AI).');make.disabled=false;
@@ -107,7 +120,7 @@ window.SuttaPoster={attach(ar,d,q,l){
  const svgSave=add(downloads,'button','SVG'),diagramPng=add(downloads,'button',tr('සටහන PNG','Diagram PNG'));svgSave.type=diagramPng.type='button';svgSave.disabled=diagramPng.disabled=true;
  let svgText='',diagramCanvas=null,diagramReady=false;
  function points(){
-  const text=String(d.answer||'').replace(/<[^>]*>/g,'').replace(/\*\*|__/g,'').replace(/\r/g,'');
+  const text=(d.grounding?.generated===true?String(d.answer||''):sourceQuotes(d).join('\n')).replace(/<[^>]*>/g,'').replace(/\*\*|__/g,'').replace(/\r/g,'');
   const all=[];
   for(const line of text.split(/\n+/)){
    const t=line.replace(/^\s*(?:#{1,6}\s*|[-*•]\s*|\d+[.)]\s+)/,'').trim();
