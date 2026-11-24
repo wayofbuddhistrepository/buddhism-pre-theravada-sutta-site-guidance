@@ -818,7 +818,7 @@ taskPlan=function(q,l,mode){
  }
  // Retain unfamiliar terms as their own search targets instead of discarding them.
  let leftover=full;for(const k of covered.sort((a,b)=>b.length-a.length))leftover=leftover.split(k).join(' ');
- let other=(leftover.match(/[\p{L}\p{M}]+/gu)||[]).filter(x=>x.length>=4&&!lexicalStop.has(x)&&!extraStop.has(x)&&!filler.has(x));
+ let other=(leftover.match(/[\p{L}\p{M}]+/gu)||[]).filter(x=>x.length>=4&&!lexicalStop.has(x)&&!extraStop.has(x)&&!filler.has(x)&&![...filler].some(f=>norm(f)===x));
  for(let w of [...new Set(other)].slice(0,3)){
   let g=[w];if(hasSi&&w.length>=7)for(const suf of ['යන්ගේ','වලින්','යෙන්','යෙහි','යේ','යක්','යට','ය','ව'])if(w.endsWith(suf)&&w.length-suf.length>=5){g.push(w.slice(0,-suf.length));break}
   if(!hits.some(x=>x.terms.some(t=>t===w)))hits.push({terms:g,key:w});
@@ -980,6 +980,21 @@ async function guideCandidates(plan,l){
  }));return results.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value);
 }
 
+
+// Reviewed topic edges are only search leads. Each passage must still be
+// independently retrieved and matched; no canned answer is inserted.
+function topicAnchors(q,l,plan){
+ const full=norm(q),keys=[];
+ const has=(xs)=>xs.some(x=>full.includes(norm(x)));
+ if(has(['සිත','චිත්ත','මනස','mind','citta'])){
+  if(!has(['ගෘහපති','ගැහැවි','householder']))keys.push('sn12.61','mn10','mn20','an1.49');
+ }
+ if(has(['පටිච්චසමුප්පාද','dependent origination','dependent arising','paṭiccasamuppāda']))keys.push('sn12.1','sn12.20');
+ if(has(['සතිපට්ඨාන','චිත්තානුපස්ස','satipaṭṭhāna','contemplation of mind','mindfulness of mind']))keys.push('mn10');
+ if(has(['චතුරාර්ය සත්‍ය','four noble truths','අෂ්ටාංගික මාර්ග','eightfold path']))keys.push('sn56.11');
+ return [...new Set(keys)].slice(0,6);
+}
+
 const previousTeamHandler=module.exports;
 module.exports=async(req,res)=>{
  if(req.method!=='POST'||typeof req.body?.q!=='string'||!req.body.q.trim()||req.body.q.length>500)return previousTeamHandler(req,res);
@@ -996,6 +1011,9 @@ module.exports=async(req,res)=>{
   if(req.body.evidenceOnly!==true&&(plan.deep||plan.groups.length>1||/(?:අභ්‍යන්තර|අභ්යන්තර|ඉගැන්වීම්|inner|internal)/iu.test(q))){
    const guide=await researchGuide(q,l,ctx);plan=mergeGuide(plan,guide);ctx.plan=plan;
   }
+  const anchors=topicAnchors(q,l,plan);
+  plan={...plan,guideIds:[...new Set([...anchors,...(plan.guideIds||[])])].slice(0,8),anchorIds:anchors};
+  ctx.plan=plan;
   const lanes=[{name:'corpus',run:async()=>{let c=capture();await priorHybrid(req,c.out);return c.get()}}];
   // Parallel workers use fixed trusted endpoints, bounded fan-out, and no paid AI calls.
   const liveFn=l==='en'?liveEnglish:liveSinhala;
@@ -1008,6 +1026,7 @@ module.exports=async(req,res)=>{
   let live=work.slice(1).flatMap(x=>x.status==='fulfilled'&&Array.isArray(x.value)?x.value:[]);
   if(l==='en'&&local?.sources?.length){try{live.push(...await directEnglish(local.sources,plan))}catch{}}
   let pool=[...(local?.sources||[]).map(s=>({...s,team:'corpus'})),...live.map(s=>({...s,team:'live'}))];
+  pool.sort((a,b)=>Number(plan.anchorIds.includes(stableSourceIdentity(b)))-Number(plan.anchorIds.includes(stableSourceIdentity(a))));
   let unique=[];for(let s of pool){if(!s?.id||!s.primary)continue;if(/^bjt:vp-/i.test(s.id)&&!/(?:විනය|විනයපිටක|උපසම්පදා|පාතිමොක්ඛ|vinaya|monastic discipline)/iu.test(q))continue;let other=unique.find(x=>stableSourceIdentity(x)===stableSourceIdentity(s));if(other){if(Number.isInteger(s.matchedPage)&&other.id===s.id)other.matchedPage=s.matchedPage;if(other.primary!==s.primary){other.comparisonUrl=s.primary;other.comparisonOrigin=s.origin||'Original source'}continue}unique.push(s)}
   // Source verification team retrieves original pages in parallel before generation.
   let original=await Promise.allSettled(unique.slice(0,plan.deep?14:6).map(s=>originalEvidence(s,l,plan)));
@@ -1015,7 +1034,7 @@ module.exports=async(req,res)=>{
   let graph=await graphEvidence(verified,l,plan).catch(()=>[]);
   for(const x of graph)if(!verified.some(v=>stableSourceIdentity(v)===stableSourceIdentity(x)))verified.push(x);
   const preferExpository=/(?:අභිධර්ම|විනය|පටිසම්භිදා|නිද්දෙස|abhidhamma|vinaya|paṭisambhidā|niddesa)/iu.test(q);
-  verified.sort((a,b)=>(preferExpository?0:sourceTier(a)-sourceTier(b))||b.score-a.score);
+  verified.sort((a,b)=>(preferExpository?0:sourceTier(a)-sourceTier(b))||Number(plan.anchorIds.includes(stableSourceIdentity(b)))-Number(plan.anchorIds.includes(stableSourceIdentity(a)))||b.score-a.score);
   const selected=[];for(let i=0;i<plan.groups.length;i++){let s=verified.find(x=>facetsFor(x,plan).includes(i));if(s&&!selected.includes(s))selected.push(s)}
   for(const s of verified){if(selected.length>=(plan.deep?6:4))break;if(!selected.includes(s))selected.push(s)}
   const coverage=plan.groups.filter((g,i)=>selected.some(s=>facetsFor(s,plan).includes(i))).length;
