@@ -5,8 +5,10 @@ colorFrom: green
 colorTo: yellow
 sdk: gradio
 sdk_version: 6.15.1
+python_version: "3.12"
+startup_duration_timeout: 1h
 app_file: app.py
 short_description: Source-grounded Theravada research
 ---
 # SuttaGo isolated model experiment
-Qwen3.8-27B-FP8, Apache-2.0 model. This is an experimental inference service, not a doctrinal authority. Select ZeroGPU (zero-a10g) explicitly, not paid hardware. Set secret SUTTA_SPACE_KEY before use. The API is disabled without the secret. The model must pass the Sinhala/Pali/English evaluation before enabling it on Vercel. No automatic paid fallback.
+Qwen/Qwen3.8-27B-FP8. Experimental source-grounded inference. Not a doctrinal authority. ZeroGPU only; no paid hardware upgrade or fallback. Access key required. Do not send private information. 
