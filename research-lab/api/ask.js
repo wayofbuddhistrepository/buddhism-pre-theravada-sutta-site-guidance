@@ -157,11 +157,13 @@ async function reviewedMind(q,l){
 // Replace arbitrary full-text snippets with exact title retrieval only.
 // Future semantic results must clear a relevance gate; never sort by source order.
 liveSearch=async function(q,lang){
+ let direct=[['මහාපරිනිබ්බාන','dn-2-3'],['මහාපරිනිර්වාණ','dn-2-3'],['සබ්බාසව','mn-1-1-2']].find(x=>compact(q).includes(compact(x[0])));
+ if(direct){try{let d=await nodeText(direct[1],lang);if(d)return [d]}catch{}}
  let idx;try{idx=await titleIndex()}catch{return []}
  const query=compact(terms(q).join(' '));if(query.length<5)return [];
  const matches=idx.filter(x=>!/^[-.\d\s]+$/.test(x.sinh||'')&&x.level!==0)
- .map(x=>({...x,score:titleScore(q,x)})).filter(x=>x.score>=100)
- .filter(x=>/(?:සූත්|සුත්ත|සූත‍්‍ර|සුත‍්ත|සුත්)/u.test(norm((x.sinh||'')+' '+(x.pali||''))))
+ .map(x=>({...x,score:titleScore(q,x)})).filter(x=>x.score>0)
+ .filter(x=>!/(?:වර්ගය|වග්ගො|වග්ගං|වග්ගය)$/u.test(norm((x.sinh||'')+' '+(x.pali||'')).trim()))
  .sort((a,b)=>b.score-a.score).slice(0,3);
  let result=await Promise.allSettled(matches.map(x=>nodeText(x.key,lang)));
  return result.filter(x=>x.status==='fulfilled'&&x.value).map(x=>x.value);
