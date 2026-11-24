@@ -1,0 +1,21 @@
+name: Publish SuttaGo isolated HF Space
+on:
+  push:
+    branches: [isolated-suttago-lab]
+    paths: ['research-lab/hf-publish.request']
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: suttago-hf
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python -m pip install huggingface_hub==2.4.0
+      - run: python research-lab/scripts/publish_hf.py
+        env:
+          HF_TOKEN: ${{ secrets.SUTTAGO_HF_TOKEN }}
+          SUTTA_SPACE_KEY: ${{ secrets.SUTTAGO_SPACE_KEY }}
