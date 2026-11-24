@@ -96,6 +96,31 @@ window.SuttaPoster={attach(ar,d,q,l){
  const prompt=field(tr('ඔබට අවශ්‍ය රූපය විස්තර කරන්න','Describe your background'),'textarea',artPrompt);prompt.rows=3;prompt.maxLength=350;
  const make=add(editor,'button',tr('✦ අලුත් පසුබිමක් සාදන්න','✦ Create background'));make.type='button';
  const aiStatus=add(editor,'small','');
+ const seenPresets=new Set();
+ let presetList=null;
+ function sceneCategory(p){
+  const t=p.toLowerCase();
+  // Only use a pre-generated image for familiar scene categories; custom descriptions
+  // are not claimed to be matched by a generative model.
+  if(/waterfall|දිය\s*ඇල්ල|දියඇල්ල/.test(t))return 'waterfall';
+  if(/night|moon|රාත්‍රි|රාත්‍රී|සඳ/.test(t))return 'night';
+  if(/lotus|pond|නෙළුම්|පොකුණ/.test(t))return 'lotus';
+  if(/lake|විල|වැව/.test(t))return 'lake';
+  if(/forest|woods|වනාන්තර|කැලෑ/.test(t))return 'forest';
+  if(/temple|monastery|ආරාම|පන්සල|විහාර/.test(t))return 'temple';
+  return null;
+ }
+ async function tryPreset(p){
+  const category=sceneCategory(p);if(!category)return false;
+  try{
+   if(!presetList){const r=await fetch(assetBase+'presets/manifest.json',{cache:'no-cache',signal:AbortSignal.timeout(2000)});if(!r.ok)return false;const list=await r.json();if(!Array.isArray(list))return false;presetList=list.filter(v=>v&&/^(lotus|lake|forest|waterfall|night|temple)-[0-2]\.jpg$/.test(v.file)&&v.scene===v.file.split('-')[0]);}
+   const available=presetList.filter(v=>v.scene===category&&!seenPresets.has(v.file));
+   if(!available.length)return false;
+   const v=available[sceneSeed%available.length],im=await Promise.race([load(assetBase+'presets/'+v.file),new Promise((_,rej)=>setTimeout(()=>rej(Error('timeout')),3000))]);
+   seenPresets.add(v.file);uploaded=im;bg.value='upload';artOrigin='cpu-preset';return true;
+  }catch{return false}
+ }
+
  make.onclick=async()=>{
   const p=prompt.value.trim();if(p.length<3){aiStatus.textContent=tr('රූපය විස්තර කරන්න.','Describe the image.');return}
   make.disabled=true;artPrompt=p;sceneSeed=crypto.getRandomValues(new Uint32Array(1))[0];uploaded=null;bg.value='illustrated';artOrigin='illustrated';
@@ -105,7 +130,8 @@ window.SuttaPoster={attach(ar,d,q,l){
    const r=await fetch('/api/poster-background',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:p,seed:sceneSeed}),signal:AbortSignal.timeout(12000)});
    if(r.ok){const blob=await r.blob();if(!/^image\/(?:png|jpeg|webp)$/.test(blob.type)||blob.size>12000000)throw Error('invalid image');uploadUrl=URL.createObjectURL(blob);uploaded=await load(uploadUrl);bg.value='upload';artOrigin='cpu-ai'}
   }catch{}
-  await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):tr('ක්ෂණික භූදර්ශනය සූදානම් (AI නොවේ).','Instant illustration ready (not AI).');make.disabled=false;
+  if(!uploaded)await tryPreset(p);
+  await render();aiStatus.textContent=artOrigin==='cpu-ai'?tr('AI පසුබිම සූදානම්.','AI background ready.'):artOrigin==='cpu-preset'?tr('CPU මඟින් පෙර නිර්මාණය කළ AI පසුබිමක්.','Previously CPU-generated AI background.'):tr('නව භූදර්ශනය සූදානම් (AI නොවේ).','New illustrated landscape (not AI).');make.disabled=false;
  };
 
 
@@ -210,7 +236,7 @@ window.SuttaPoster={attach(ar,d,q,l){
    if(body.value.trim())y=textBlock(ctx,body.value,x,y,w,bottom-y-footerH-flowH-12,landscape?30:36,23,'400',family,'#fffdf4')+12;
    if(steps.length){for(let i=0;i<steps.length;i++){ctx.fillStyle='rgba(236,212,160,.12)';rounded(ctx,x,y,w,45,9);ctx.fill();textBlock(ctx,steps[i],x+12,y+5,w-24,36,26,20,'600',family,'#fbe3ae');y+=49;if(i<steps.length-1){ctx.fillStyle='#ecd4a0';ctx.font='20px sans-serif';ctx.fillText('·',x+w/2-7,y-3);y+=8}}}
    if(refs.value.trim())textBlock(ctx,tr('මූලාශ්‍ර: ','Sources: ')+refs.value,x,bottom-footerH+5,w,footerH-8,22,17,'400',family,'#ecd4a0');
-   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?tr('CPU AI පසුබිම + පෙළ','CPU AI background + text'):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
+   status.textContent=(used==='ai-preset'?tr('AI පෙරනිමි පසුබිම + සංස්කරණය කළ පෙළ','AI-generated preset + editable text'):used==='upload'?(artOrigin==='cpu-preset'?tr('පෙර නිර්මාණය කළ AI පසුබිම + පෙළ','Pre-generated AI background + text'):tr('CPU AI පසුබිම + පෙළ','CPU AI background + text')):tr('දෛශික පසුබිම (AI නොවේ) + පෙළ','Vector background (not AI) + text'))+' · '+W+' × '+H;
    png.disabled=jpg.disabled=false;
   }catch(e){status.textContent=e.message==='overflow'?tr('පෙළ වැඩියි. කෙටි කරන්න හෝ දිගු ප්‍රමාණයක් තෝරන්න.','Text is too long. Shorten it or select a taller size.'):e.message==='font'?tr('සිංහල font එක load වූයේ නැත. නැවත උත්සාහ කරන්න.','Sinhala font could not load. Try again.'):e.message==='steps'?tr('ගැලීම් කරුණු 4ක් දක්වා ඇතුළත් කරන්න.','Use up to four flow steps.'):tr('රූපය සකස් කළ නොහැකි විය.','Could not render poster.')}
   finally{if(run===revision)preview.disabled=false}
