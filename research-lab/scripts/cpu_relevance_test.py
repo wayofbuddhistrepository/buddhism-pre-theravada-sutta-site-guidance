@@ -25,11 +25,14 @@ print("Reranker ranking",[(x[0][0],x[1]) for x in ranked])
 selected=[x[0] for x in ranked[:3]]
 del embed,rerank
 path=hf_hub_download("Qwen/Qwen3-8B-GGUF","Qwen3-8B-Q4_K_M.gguf",revision="7c41481f57cb95916b40956ab2f0b139b296d974")
-llm=Llama(model_path=path,n_ctx=4096,n_threads=2,n_gpu_layers=0,verbose=False)
-evidence="\n".join(f"[S{i+1}] {x[1]} {x[2][:900]}" for i,x in enumerate(selected))
+llm=Llama(model_path=path,n_ctx=8192,n_threads=2,n_gpu_layers=0,verbose=False)
+evidence="\n".join(f"[S{i+1}] {x[1]} {x[2][:650]}" for i,x in enumerate(selected))
 prompt=f"පහත මූලාශ්‍ර අනුව සිංහලෙන් පමණක් පිළිතුරු දෙන්න. අදාළ නැති පාඨ නොගන්න. [S1] වැනි සබැඳි අංක යොදන්න. ප්‍රශ්නය: {question}\n{evidence}\n/no_think"
 out=llm.create_chat_completion(messages=[{"role":"user","content":prompt}],max_tokens=350,temperature=0.1)["choices"][0]["message"]["content"]
 print("CPU grounded draft:",out)
 print("Relevant-source top 3:",sum(x[0] in keys[:3] for x in selected),"/3")
 assert out and any("\u0d80"<=c<="\u0dff" for c in out)
+import re
+refs=re.findall(r"\[S(\d+)\]",out)
+assert refs and all(1<=int(x)<=3 for x in refs),"missing or invalid citations"
 assert sum(x[0] in keys[:3] for x in selected)>=2,"relevance gate failed"
